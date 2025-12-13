@@ -29,13 +29,46 @@
             <th>Описание</th>
             <th id="deptHeader">Департамент</th>
             <th>Томов</th>
-            <th>Всего страниц</th>
+            <th id="docsHeader">Документов</th>
             <th>Текущий том</th>
             <th>Действия</th>
         </tr>
     </thead>
     <tbody id="casesBody"></tbody>
 </table>
+
+<!-- Модальное окно редактирования дела -->
+<div class="modal fade" id="editCaseModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактирование дела</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editCaseName">Название дела:</label>
+                    <input type="text" id="editCaseName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="editCaseDescription">Описание:</label>
+                    <textarea id="editCaseDescription" class="form-control" rows="3"></textarea>
+                </div>
+                <div id="editDeptSelect" class="form-group" style="display:none;">
+                    <label for="editCaseDepartment">Департамент:</label>
+                    <select id="editCaseDepartment" class="form-control"></select>
+                </div>
+                <input type="hidden" id="editCaseId">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="saveCaseChanges">Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Модальное окно для просмотра документов в томе -->
 <div class="modal fade" id="viewDocsModal" tabindex="-1" role="dialog">
@@ -593,6 +626,16 @@
         font-size: 12px;
         margin: 0 2px;
     }
+    .btn-sm-icon {
+        padding: 4px 8px;
+        font-size: 14px;
+        line-height: 1;
+    }
+    .btn-xs-icon {
+        padding: 2px 6px;
+        font-size: 12px;
+        line-height: 1;
+    }
     .modal-body {
         scrollbar-width: thin;
         scrollbar-color: #adb5bd #f8f9fa;
@@ -634,11 +677,19 @@
         border-radius: 4px;
         border-left: 4px solid #dc3545;
     }
-    .to-be-removed {
-    background-color: rgba(220, 53, 69, 0.1) !important;
-    text-decoration: line-through;
-    opacity: 0.6;
-}
+    .action-buttons {
+        display: flex;
+        gap: 4px;
+        flex-wrap: nowrap;
+    }
+    .action-buttons .btn {
+        padding: 3px 6px;
+        font-size: 12px;
+    }
+    .volume-details .action-buttons .btn {
+        padding: 2px 5px;
+        font-size: 11px;
+    }
 </style>
 
 <script>
@@ -673,19 +724,20 @@ $(document).ready(function() {
                 var isAdmin = '{{ current_user.username }}' === 'admin';
                 
                 data.forEach(function(caseItem) {
-                    // Вычисляем общее количество страниц
-                    var totalPages = 0;
+                    // Вычисляем общее количество документов во всех томах
+                    var totalDocuments = 0;
                     var volumesCount = caseItem.volumes.length;
                     
                     caseItem.volumes.forEach(function(vol) {
-                        totalPages += (vol.pages_end - vol.pages_start + 1);
+                        totalDocuments += vol.documents_count || 0;
                     });
                     
-                    // Информация о текущем томе
+                    // Информация о текущем томе - ИСПРАВЛЕН ФОРМАТ
                     var currentVolumeInfo = 'Нет текущего тома';
                     if (caseItem.current_volume) {
                         var freePages = caseItem.current_volume.free_pages;
                         var currentPages = caseItem.current_volume.total_pages;
+                        // Формат: Том 3 (179/250 стр., свободно: 71 стр.)
                         currentVolumeInfo = 'Том ' + caseItem.current_volume.volume_number + 
                                           ' (' + currentPages + '/250 стр., свободно: ' + freePages + ' стр.)';
                     }
@@ -695,13 +747,22 @@ $(document).ready(function() {
                     row += '<td class="text-center"><span class="expand-icon">▶</span></td>';
                     row += '<td><strong>' + caseItem.name + '</strong></td>';
                     row += '<td>' + (caseItem.description || '') + '</td>';
-                    row += '<td class="deptCell">' + caseItem.department + '</td>';
+                    row += '<td class="deptCell">' + (caseItem.department || '') + '</td>';
                     row += '<td class="text-center">' + volumesCount + '</td>';
-                    row += '<td class="text-center">' + totalPages + ' стр.</td>';
+                    row += '<td class="text-center">' + totalDocuments + '</td>';
                     row += '<td>' + currentVolumeInfo + '</td>';
                     row += '<td>';
-                    row += '<button class="btn btn-sm btn-outline-primary addDocsBtn mr-1" data-case-id="' + caseItem.case_id + '">Добавить документы</button>';
-                    row += '<a href="/api/cases/' + caseItem.case_id + '/export-excel" class="btn btn-sm btn-outline-success" download>Экспорт</a>';
+                    row += '<div class="action-buttons">';
+                    row += '<button class="btn btn-sm btn-outline-primary addDocsBtn" data-case-id="' + caseItem.case_id + '" title="Добавить документы">';
+                    row += '<i class="fas fa-plus"></i>';
+                    row += '</button>';
+                    row += '<button class="btn btn-sm btn-outline-warning editCaseBtn" data-case-id="' + caseItem.case_id + '" title="Редактировать дело">';
+                    row += '<i class="fas fa-edit"></i>';
+                    row += '</button>';
+                    row += '<a href="/api/cases/' + caseItem.case_id + '/export-excel" class="btn btn-sm btn-outline-success" download title="Экспорт">';
+                    row += '<i class="fas fa-file-excel"></i>';
+                    row += '</a>';
+                    row += '</div>';
                     row += '</td>';
                     row += '</tr>';
                     
@@ -718,9 +779,9 @@ $(document).ready(function() {
                         detailsRow += '<thead><tr>';
                         detailsRow += '<th style="width: 100px;">Том</th>';
                         detailsRow += '<th style="width: 150px;">Статус</th>';
-                        detailsRow += '<th style="width: 120px;">Страниц в томе</th>';
-                        detailsRow += '<th style="width: 120px;">Документов</th>';
-                        detailsRow += '<th style="width: 200px;">Действия</th>';
+                        detailsRow += '<th style="width: 100px;">Страниц</th>';
+                        detailsRow += '<th style="width: 100px;">Документов</th>';
+                        detailsRow += '<th style="width: 180px;">Действия</th>';
                         detailsRow += '</tr></thead>';
                         detailsRow += '<tbody>';
                         
@@ -750,17 +811,23 @@ $(document).ready(function() {
                             detailsRow += '<td class="text-center"><strong>Том ' + vol.volume_number + '</strong></td>';
                             detailsRow += '<td><span class="badge ' + status_badge + ' ' + status_class + '">' + status_text + '</span></td>';
                             detailsRow += '<td class="text-center">' + pages_in_volume + ' стр.</td>';
-                            detailsRow += '<td class="text-center">' + vol.documents_count + ' док.</td>';
+                            detailsRow += '<td class="text-center">' + vol.documents_count + '</td>';
                             detailsRow += '<td>';
-                            detailsRow += '<button class="btn btn-xs btn-outline-primary viewDocsBtn mr-1" data-volume-id="' + vol.volume_id + '">Просмотр</button>';
+                            detailsRow += '<div class="action-buttons">';
+                            detailsRow += '<button class="btn btn-xs btn-outline-primary viewDocsBtn" data-volume-id="' + vol.volume_id + '" title="Просмотр документов">';
+                            detailsRow += '<i class="fas fa-eye"></i>';
+                            detailsRow += '</button>';
                             
                             if (!vol.is_verified) {
-                                detailsRow += '<button class="btn btn-xs btn-outline-warning editVolumeBtn mr-1" data-volume-id="' + vol.volume_id + '" title="Редактировать том">';
-                                detailsRow += '<i class="fas fa-edit"></i> Редактировать';
+                                detailsRow += '<button class="btn btn-xs btn-outline-warning editVolumeBtn" data-volume-id="' + vol.volume_id + '" title="Редактировать том">';
+                                detailsRow += '<i class="fas fa-edit"></i>';
                                 detailsRow += '</button>';
                             }
                             
-                            detailsRow += '<a href="/api/cases/' + caseItem.case_id + '/export-excel?volume=' + vol.volume_number + '" class="btn btn-xs btn-outline-success mr-1" download>Экспорт</a>';
+                            detailsRow += '<a href="/api/cases/' + caseItem.case_id + '/export-excel?volume=' + vol.volume_number + '" class="btn btn-xs btn-outline-success" download title="Экспорт тома">';
+                            detailsRow += '<i class="fas fa-file-excel"></i>';
+                            detailsRow += '</a>';
+                            detailsRow += '</div>';
                             detailsRow += '</td>';
                             detailsRow += '</tr>';
                         });
@@ -793,7 +860,7 @@ $(document).ready(function() {
     // Обработчик клика на строку с делом (раскрытие/скрытие томов)
     $('#casesBody').on('click', '.case-row', function(e) {
         // Если клик был по кнопке внутри строки, не раскрываем/скрываем
-        if ($(e.target).closest('.addDocsBtn, .btn, a').length) {
+        if ($(e.target).closest('.addDocsBtn, .btn, a, .editCaseBtn').length) {
             return;
         }
         
@@ -819,6 +886,104 @@ $(document).ready(function() {
         e.stopPropagation();
         selectedCaseId = $(this).data('case-id');
         openSelectDocsModal();
+    });
+    
+    // Обработчик для кнопки "Редактировать дело"
+    $('#casesBody').on('click', '.editCaseBtn', function(e) {
+        e.stopPropagation();
+        var caseId = $(this).data('case-id');
+        openEditCaseModal(caseId);
+    });
+    
+    // Функция открытия модального окна редактирования дела
+    function openEditCaseModal(caseId) {
+        $.ajax({
+            url: '/api/cases/' + caseId,
+            method: 'GET',
+            success: function(caseData) {
+                // Заполняем форму данными дела
+                $('#editCaseId').val(caseId);
+                $('#editCaseName').val(caseData.name || '');
+                $('#editCaseDescription').val(caseData.description || '');
+                
+                // Проверяем права администратора для выбора департамента
+                var isAdmin = '{{ current_user.username }}' === 'admin';
+                if (isAdmin) {
+                    $('#editDeptSelect').show();
+                    loadDepartmentsForEdit(caseData.department_id);
+                } else {
+                    $('#editDeptSelect').hide();
+                }
+                
+                // Показываем модальное окно
+                $('#editCaseModal').modal('show');
+            },
+            error: function(xhr) {
+                alert('Ошибка загрузки данных дела: ' + (xhr.responseJSON ? xhr.responseJSON.error : xhr.responseText));
+            }
+        });
+    }
+    
+    // Загрузка департаментов для редактирования дела
+    function loadDepartmentsForEdit(currentDeptId) {
+        $.ajax({
+            url: '/api/departments',
+            method: 'GET',
+            success: function(data) {
+                var select = $('#editCaseDepartment');
+                select.empty();
+                select.append('<option value="">Выберите департамент</option>');
+                data.forEach(function(dept) {
+                    var option = $('<option value="' + dept.id + '">' + dept.name + '</option>');
+                    if (dept.id == currentDeptId) {
+                        option.attr('selected', 'selected');
+                    }
+                    select.append(option);
+                });
+            },
+            error: function(xhr) {
+                console.error('Error loading departments:', xhr);
+                alert('Ошибка загрузки департаментов');
+            }
+        });
+    }
+    
+    // Сохранение изменений дела
+    $('#saveCaseChanges').on('click', function() {
+        var caseId = $('#editCaseId').val();
+        var name = $('#editCaseName').val().trim();
+        var desc = $('#editCaseDescription').val().trim();
+        var deptId = $('#editCaseDepartment').val();
+        
+        if (!name) {
+            alert('Введите название дела');
+            return;
+        }
+        
+        var payload = { 
+            name: name, 
+            description: desc
+        };
+        
+        if (deptId) {
+            payload.department_id = parseInt(deptId);
+        }
+        
+        $.ajax({
+            url: '/api/cases/' + caseId,
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            success: function(data) {
+                alert('Дело успешно обновлено!');
+                $('#editCaseModal').modal('hide');
+                loadCases(); // Обновляем список дел
+            },
+            error: function(xhr) {
+                console.error('Error updating case:', xhr);
+                alert('Ошибка обновления дела: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Неизвестная ошибка'));
+            }
+        });
     });
     
     // Обработчик для кнопок просмотра в деталях тома
@@ -917,7 +1082,21 @@ $(document).ready(function() {
             method: 'GET',
             success: function(data) {
                 currentVolumeData = data;
-                currentEditVolumeDocs = data.documents;
+                
+                // Сохраняем оригинальные данные документов
+                currentEditVolumeDocs = data.documents.map(function(doc) {
+                    return {
+                        document_id: doc.document_id,
+                        title: doc.title,
+                        incoming_number: doc.incoming_number,
+                        outgoing_number: doc.outgoing_number,
+                        extra_info: doc.extra_info,
+                        start_page: doc.start_page,
+                        end_page: doc.end_page,
+                        // Рассчитываем количество страниц
+                        pages_count: doc.end_page - doc.start_page + 1
+                    };
+                });
                 
                 $('#editVolumeNumber').text(data.volume_number);
                 $('#editCurrentPages').text(data.total_pages);
@@ -975,7 +1154,7 @@ $(document).ready(function() {
                 return;
             }
             
-            var pages = doc.end_page - doc.start_page + 1;
+            var pages = doc.pages_count || (doc.end_page - doc.start_page + 1);
             var row = '<tr data-doc-id="' + doc.document_id + '" data-row-index="' + index + '">';
             row += '<td class="text-center">';
             row += '<span class="badge badge-primary order-badge">' + (index + 1) + '</span>';
@@ -986,12 +1165,14 @@ $(document).ready(function() {
             row += '<td><span class="edit-doc-outgoing-display">' + (doc.outgoing_number || '-') + '</span></td>';
             row += '<td><span class="edit-doc-extra-display">' + (doc.extra_info || '') + '</span></td>';
             row += '<td class="text-center">';
-            row += '<button class="btn btn-sm btn-outline-primary btn-action edit-volume-doc-btn" title="Редактировать">';
+            row += '<div class="action-buttons">';
+            row += '<button class="btn btn-xs btn-outline-primary edit-volume-doc-btn" title="Редактировать">';
             row += '<i class="fas fa-edit"></i>';
-            row += '</button> ';
-            row += '<button class="btn btn-sm btn-outline-danger btn-action delete-volume-doc-btn" title="Удалить из тома">';
+            row += '</button>';
+            row += '<button class="btn btn-xs btn-outline-danger delete-volume-doc-btn" title="Удалить из тома">';
             row += '<i class="fas fa-trash"></i>';
             row += '</button>';
+            row += '</div>';
             row += '</td>';
             row += '</tr>';
             tbody.append(row);
@@ -1021,211 +1202,102 @@ $(document).ready(function() {
     }
     
     // Обновление порядка в таблице редактирования
-function updateEditVolumeTableOrder() {
-    var newDocs = [];
-    $("#editVolumeTable tbody tr").each(function(index) {
-        var $row = $(this);
-        var docId = parseInt($row.data('doc-id'));
+    function updateEditVolumeTableOrder() {
+        var newDocs = [];
+        $("#editVolumeTable tbody tr").each(function(index) {
+            var $row = $(this);
+            var docId = parseInt($row.data('doc-id'));
+            
+            // Находим документ в исходном массиве
+            var originalDoc = currentEditVolumeDocs.find(function(doc) {
+                return doc.document_id === docId;
+            });
+            
+            if (originalDoc && !removedDocuments.includes(docId)) {
+                newDocs.push(originalDoc);
+                // Обновляем индекс строки
+                $row.data('row-index', index);
+                // Обновляем номер порядка
+                $row.find('.order-badge').text(index + 1);
+            }
+        });
         
-        // Находим документ в исходном массиве
-        var originalDoc = currentEditVolumeDocs.find(function(doc) {
+        // Обновляем массив документов
+        currentEditVolumeDocs = newDocs;
+    }
+    
+    // Добавление обработчиков для таблицы редактирования
+    function addEditVolumeTableHandlers() {
+        // Обработчик кнопки редактирования
+        $('.edit-volume-doc-btn').off('click').on('click', function(e) {
+            e.stopPropagation();
+            var row = $(this).closest('tr');
+            var docId = parseInt(row.data('doc-id'));
+            var rowIndex = row.data('row-index');
+            openEditVolumeDocModal(docId, rowIndex);
+        });
+        
+        // Обработчик кнопки удаления
+        $('.delete-volume-doc-btn').off('click').on('click', function(e) {
+            e.stopPropagation();
+            var row = $(this).closest('tr');
+            var docId = parseInt(row.data('doc-id'));
+            var docTitle = row.find('.edit-doc-title-display').text();
+            var docPages = row.find('.edit-doc-pages-display').text();
+            
+            // Находим полные данные документа
+            var docData = currentEditVolumeDocs.find(function(doc) {
+                return doc.document_id === docId;
+            });
+            
+            if (docData) {
+                $('#deleteDocTitle').text(docTitle);
+                $('#deleteDocPages').text(docPages);
+                $('#deleteDocId').val(docId);
+                $('#confirmDeleteDocModal').modal('show');
+            }
+        });
+    }
+    
+    // Подтверждение удаления документа из тома
+    $('#confirmDeleteDoc').on('click', function() {
+        var docId = parseInt($('#deleteDocId').val());
+        
+        // Находим данные документа
+        var docIndex = currentEditVolumeDocs.findIndex(function(doc) {
             return doc.document_id === docId;
         });
         
-        if (originalDoc && !removedDocuments.includes(docId)) {
-            newDocs.push(originalDoc);
-            // Обновляем индекс строки
-            $row.data('row-index', index);
-            // Обновляем номер порядка
-            $row.find('.order-badge').text(index + 1);
+        if (docIndex !== -1) {
+            var docData = currentEditVolumeDocs[docIndex];
+            
+            // Добавляем документ в список удаляемых
+            if (!removedDocuments.includes(docId)) {
+                removedDocuments.push(docId);
+                removedDocumentsData[docId] = {
+                    id: docId,
+                    title: docData.title,
+                    pages: docData.end_page - docData.start_page + 1
+                };
+                
+                // Удаляем строку из таблицы
+                $('tr[data-doc-id="' + docId + '"]').remove();
+                
+                // Обновляем порядок и индексы
+                updateEditVolumeTableOrder();
+                
+                // Обновляем список удаляемых документов
+                updateRemovedDocumentsList();
+                
+                // Сбрасываем результат расчета
+                $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
+                $('#saveEditedVolume').prop('disabled', true);
+            }
         }
-    });
-    
-    // Обновляем массив документов НЕ удаляя отмеченные для удаления
-    // Они остаются в currentEditVolumeDocs, но помечаются в removedDocuments
-    currentEditVolumeDocs = currentEditVolumeDocs.filter(function(doc) {
-        // Оставляем все документы, но для отмеченных к удалению ставим флаг
-        return true;
-    });
-    
-    // Обновляем порядок в соответствии с таблицей
-    var reorderedDocs = [];
-    newDocs.forEach(function(docId) {
-        var doc = currentEditVolumeDocs.find(function(d) {
-            return d.document_id === docId;
-        });
-        if (doc) {
-            reorderedDocs.push(doc);
-        }
-    });
-    
-    // Обновляем currentEditVolumeDocs
-    currentEditVolumeDocs = reorderedDocs;
-}
-    
-    
-    
-    // Добавление обработчиков для таблицы редактирования - УПРОЩЕННАЯ ВЕРСИЯ
-function addEditVolumeTableHandlers() {
-    // Обработчик кнопки редактирования
-    $('.edit-volume-doc-btn').off('click').on('click', function(e) {
-        e.stopPropagation();
-        var row = $(this).closest('tr');
-        var docId = parseInt(row.data('doc-id'));
-        openEditVolumeDocModal(docId);
-    });
-    
-    // Обработчик кнопки удаления
-    $('.delete-volume-doc-btn').off('click').on('click', function(e) {
-        e.stopPropagation();
-        var row = $(this).closest('tr');
-        var docId = parseInt(row.data('doc-id'));
-        var docTitle = row.find('.edit-doc-title-display').text();
-        var docPages = row.find('.edit-doc-pages-display').text();
         
-        // Сохраняем данные для модального окна
-        window.pendingDeleteDoc = {
-            id: docId,
-            title: docTitle,
-            pages: docPages,
-            row: row
-        };
-        
-        $('#deleteDocTitle').text(docTitle);
-        $('#deleteDocPages').text(docPages);
-        $('#confirmDeleteDocModal').modal('show');
-    });
-}
-
-// Подтверждение удаления документа из тома - УПРОЩЕННАЯ ВЕРСИЯ
-$('#confirmDeleteDoc').on('click', function() {
-    if (!window.pendingDeleteDoc) return;
-    
-    var docId = window.pendingDeleteDoc.id;
-    var docTitle = window.pendingDeleteDoc.title;
-    var docPages = window.pendingDeleteDoc.pages;
-    var row = window.pendingDeleteDoc.row;
-    
-    // Находим данные документа
-    var docData = currentEditVolumeDocs.find(function(doc) {
-        return doc.document_id === docId;
+        $('#confirmDeleteDocModal').modal('hide');
     });
     
-    if (docData) {
-        // Добавляем документ в список удаляемых
-        if (!removedDocuments.includes(docId)) {
-            removedDocuments.push(docId);
-            removedDocumentsData[docId] = {
-                id: docId,
-                title: docTitle,
-                pages: docPages
-            };
-            
-            // Визуально помечаем строку как удаленную
-            row.addClass('to-be-removed');
-            row.find('td').css('opacity', '0.5');
-            row.find('.delete-volume-doc-btn').prop('disabled', true);
-            
-            // Обновляем список удаляемых документов
-            updateRemovedDocumentsList();
-            
-            // Сбрасываем результат расчета
-            $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
-            $('#saveEditedVolume').prop('disabled', true);
-        }
-    }
-    
-    // Очищаем временные данные
-    window.pendingDeleteDoc = null;
-    $('#confirmDeleteDocModal').modal('hide');
-});
-
-// И обновите fillEditVolumeTable() чтобы восстановить удаленные документы
-function fillEditVolumeTable() {
-    var tbody = $('#editVolumeTableBody');
-    tbody.empty();
-    
-    currentEditVolumeDocs.forEach(function(doc, index) {
-        var pages = doc.pages_count || (doc.end_page - doc.start_page + 1);
-        var isRemoved = removedDocuments.includes(doc.document_id);
-        
-        var row = '<tr data-doc-id="' + doc.document_id + '" data-row-index="' + index + '"';
-        if (isRemoved) {
-            row += ' class="to-be-removed"';
-        }
-        row += '>';
-        
-        row += '<td class="text-center">';
-        row += '<span class="badge badge-primary order-badge">' + (index + 1) + '</span>';
-        row += '</td>';
-        row += '<td><span class="edit-doc-title-display">' + (doc.title || '') + '</span></td>';
-        row += '<td class="text-center"><span class="edit-doc-pages-display">' + pages + '</span></td>';
-        row += '<td><span class="edit-doc-incoming-display">' + (doc.incoming_number || '-') + '</span></td>';
-        row += '<td><span class="edit-doc-outgoing-display">' + (doc.outgoing_number || '-') + '</span></td>';
-        row += '<td><span class="edit-doc-extra-display">' + (doc.extra_info || '') + '</span></td>';
-        row += '<td class="text-center">';
-        row += '<button class="btn btn-sm btn-outline-primary btn-action edit-volume-doc-btn" title="Редактировать"';
-        if (isRemoved) row += ' disabled';
-        row += '>';
-        row += '<i class="fas fa-edit"></i>';
-        row += '</button> ';
-        row += '<button class="btn btn-sm btn-outline-danger btn-action delete-volume-doc-btn" title="Удалить из тома"';
-        if (isRemoved) row += ' disabled';
-        row += '>';
-        row += '<i class="fas fa-trash"></i>';
-        row += '</button>';
-        row += '</td>';
-        row += '</tr>';
-        tbody.append(row);
-    });
-    
-    // Инициализация перетаскивания строк
-    initEditTableSorting();
-    
-    // Добавляем обработчики для кнопок
-    addEditVolumeTableHandlers();
-}
-    
-    // Подтверждение удаления документа из тома
-$('#confirmDeleteDoc').on('click', function() {
-    var docId = parseInt($('#deleteDocId').val());
-    
-    // Находим данные документа
-    var docIndex = currentEditVolumeDocs.findIndex(function(doc) {
-        return doc.document_id === docId;
-    });
-    
-    if (docIndex !== -1) {
-        var docData = currentEditVolumeDocs[docIndex];
-        
-        // Добавляем документ в список удаляемых
-        if (!removedDocuments.includes(docId)) {
-            removedDocuments.push(docId);
-            removedDocumentsData[docId] = {
-                id: docId,
-                title: docData.title,
-                pages: docData.end_page - docData.start_page + 1
-            };
-            
-            // Удаляем строку из таблицы
-            $('tr[data-doc-id="' + docId + '"]').remove();
-            
-            // Обновляем порядок и индексы
-            updateEditVolumeTableOrder();
-            
-            // Обновляем список удаляемых документов
-            updateRemovedDocumentsList();
-            
-            // Сбрасываем результат расчета
-            $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
-            $('#saveEditedVolume').prop('disabled', true);
-        }
-    }
-    
-    $('#confirmDeleteDocModal').modal('hide');
-});
-    
-
     // Открытие модального окна редактирования документа в томе
     function openEditVolumeDocModal(docId, rowIndex) {
         var doc = currentEditVolumeDocs.find(function(d) {
@@ -1234,7 +1306,7 @@ $('#confirmDeleteDoc').on('click', function() {
         
         if (!doc) return;
         
-        var pages = doc.end_page - doc.start_page + 1;
+        var pages = doc.pages_count || (doc.end_page - doc.start_page + 1);
         
         $('#editVolumeDocTitle').val(doc.title || '');
         $('#editVolumeDocPages').val(pages);
@@ -1251,11 +1323,15 @@ $('#confirmDeleteDoc').on('click', function() {
     $('#saveVolumeDocChanges').on('click', function() {
         var docId = $('#editVolumeDocId').val();
         var rowIndex = $('#editVolumeDocRowIndex').val();
-        var doc = currentEditVolumeDocs.find(function(d) {
+        
+        // Находим документ в массиве
+        var docIndex = currentEditVolumeDocs.findIndex(function(d) {
             return d.document_id === parseInt(docId);
         });
         
-        if (!doc) return;
+        if (docIndex === -1) return;
+        
+        var doc = currentEditVolumeDocs[docIndex];
         
         // Получаем новые значения
         var newTitle = $('#editVolumeDocTitle').val().trim();
@@ -1273,17 +1349,18 @@ $('#confirmDeleteDoc').on('click', function() {
             return;
         }
         
-        // Обновляем данные документа
-        doc.title = newTitle;
-        doc.extra_info = newExtra;
-        // Сохраняем новое количество страниц для пересчета
-        doc.pages_count = newPages;
+        // Обновляем данные документа в массиве
+        currentEditVolumeDocs[docIndex].title = newTitle;
+        currentEditVolumeDocs[docIndex].extra_info = newExtra;
+        currentEditVolumeDocs[docIndex].pages_count = newPages;
         
         // Обновляем отображение в таблице
         var row = $('#editVolumeTable tbody tr[data-doc-id="' + docId + '"]');
-        row.find('.edit-doc-title-display').text(newTitle);
-        row.find('.edit-doc-pages-display').text(newPages);
-        row.find('.edit-doc-extra-display').text(newExtra || '');
+        if (row.length) {
+            row.find('.edit-doc-title-display').text(newTitle);
+            row.find('.edit-doc-pages-display').text(newPages);
+            row.find('.edit-doc-extra-display').text(newExtra || '');
+        }
         
         // Закрываем модальное окно
         $('#editVolumeDocModal').modal('hide');
@@ -1508,8 +1585,6 @@ $('#confirmDeleteDoc').on('click', function() {
             openEditVolumeModal(currentVolumeId);
         }, 300);
     });
-    
-    // ================== ОСТАЛЬНЫЙ КОД (не изменялся) ==================
     
     // Открытие модального окна выбора документов
     function openSelectDocsModal() {
@@ -1759,8 +1834,9 @@ $('#confirmDeleteDoc').on('click', function() {
         if (selectedCaseInfo && selectedCaseInfo.current_volume) {
             var freePages = selectedCaseInfo.current_volume.free_pages;
             var currentPages = selectedCaseInfo.current_volume.total_pages;
+            // Формат: Том 3 (179/250 стр., свободно: 71 стр.)
             $('#previewCurrentVolume').text('Том ' + selectedCaseInfo.current_volume.volume_number);
-            $('#previewAvailablePages').text(freePages + ' стр. (текущий том: ' + currentPages + '/250 стр.)');
+            $('#previewAvailablePages').text(freePages + ' стр. (' + currentPages + '/250 стр.)');
         } else {
             $('#previewCurrentVolume').text('Новый том будет создан');
             $('#previewAvailablePages').text('250 стр.');
@@ -1794,12 +1870,14 @@ $('#confirmDeleteDoc').on('click', function() {
                 row += '<td><span class="doc-outgoing-display">' + (docData.outgoing_number || '-') + '</span></td>';
                 row += '<td><span class="doc-extra-display">' + (docData.extra_info || '') + '</span></td>';
                 row += '<td class="text-center">';
-                row += '<button class="btn btn-sm btn-outline-primary btn-action edit-doc-btn" title="Редактировать">';
+                row += '<div class="action-buttons">';
+                row += '<button class="btn btn-xs btn-outline-primary edit-doc-btn" title="Редактировать">';
                 row += '<i class="fas fa-edit"></i>';
-                row += '</button> ';
-                row += '<button class="btn btn-sm btn-outline-danger btn-action remove-doc-btn" title="Удалить">';
+                row += '</button>';
+                row += '<button class="btn btn-xs btn-outline-danger remove-doc-btn" title="Удалить">';
                 row += '<i class="fas fa-trash"></i>';
                 row += '</button>';
+                row += '</div>';
                 row += '</td>';
                 row += '</tr>';
                 tbody.append(row);
@@ -1886,9 +1964,7 @@ $('#confirmDeleteDoc').on('click', function() {
         
         $('#editDocModal').modal('show');
     };
-
- 
-
+    
     // Сохранение изменений документа
     $('#saveDocChanges').on('click', function() {
         var docId = currentEditingDocId;
@@ -2253,6 +2329,7 @@ $('#confirmDeleteDoc').on('click', function() {
         $('#usedDocsModal').modal('show');
     }
     
+    // ================== СОЗДАНИЕ НОВОГО ДЕЛА ==================
     
     $('#createNewCaseBtn').on('click', function() {
         var isAdmin = '{{ current_user.username }}' === 'admin';
@@ -2289,7 +2366,7 @@ $('#confirmDeleteDoc').on('click', function() {
         $('#newCaseDescription').val('');
     });
     
-
+    // Обработчик создания нового дела
     $('#submitNewCase').on('click', function() {
         var name = $('#newCaseName').val().trim();
         var desc = $('#newCaseDescription').val().trim();
@@ -2347,7 +2424,8 @@ $('#confirmDeleteDoc').on('click', function() {
                 alert(errorMsg);
             }
         });
-});  
-})    
+    });
+    
+}); // Конец $(document).ready
 </script>
 {% endblock %}
