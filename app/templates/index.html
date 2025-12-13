@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Документы</h2>
+<p>Выберите документы для управления делами. <strong>Один документ может быть только в одном деле и одном томе.</strong></p>
+
+<table id="documentsTable" class="table table-striped">
+    <thead class="thead-dark">
+        <tr>
+            <th>Название</th>
+            <th>Входящий №</th>
+            <th>Исходящий №</th>
+            <th>Страниц</th>
+            <th>Доп. информация</th>
+            <th>Местоположение</th>
+        </tr>
+    </thead>
+</table>
+
+<script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+
+<script>
+$(document).ready(function() {
+    var table = $('#documentsTable').DataTable({
+        serverSide: true,
+        ajax: {
+            url: '/api/documents',
+            dataSrc: function(json) {
+                return json.data;
+            }
+        },
+        columns: [
+            { 
+                data: 'title',
+                render: function(data, type, row) {
+                    return '<strong>' + data + '</strong>';
+                }
+            },
+            { 
+                data: 'incoming_number',
+                render: function(data) {
+                    return data || '-';
+                }
+            },
+            { 
+                data: 'outgoing_number',
+                render: function(data) {
+                    return data || '-';
+                }
+            },
+            { 
+                data: 'pages_count',
+                className: 'text-center',
+                render: function(data) {
+                    return '<span class="badge badge-info">' + data + ' стр.</span>';
+                }
+            },
+            { 
+                data: 'extra_info',
+                render: function(data) {
+                    return data || '-';
+                }
+            },
+            { 
+                data: 'location',
+                className: 'text-center',
+                render: function(data) {
+                    if (!data) {
+                        return '<span class="badge badge-secondary">Не используется</span>';
+                    } else {
+                        var html = '<div class="text-left">';
+                        html += '<strong>Дело:</strong> ' + data.case_name + '<br>';
+                        html += '<strong>Том:</strong> ' + data.volume_number + '<br>';
+                        html += '<strong>Страницы:</strong> ' + data.pages_in_volume;
+                        
+                        if (data.department_name) {
+                            html += '<br><small class="text-muted">Департамент: ' + data.department_name + '</small>';
+                        }
+                        
+                        html += '</div>';
+                        return html;
+                    }
+                }
+            }
+        ],
+        language: {
+            url: "//cdn.datatables.net/plug-ins/1.13.4/i18n/ru.json"
+        },
+        order: [[0, 'asc']],
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]]
+    });
+});
+</script>
+{% endblock %}

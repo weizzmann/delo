@@ -1,0 +1,2353 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Мои дела</h2>
+<button id="createNewCaseBtn" class="btn btn-primary mb-3">Создать новое дело</button>
+<div id="newCaseForm" class="card p-3 mb-3" style="display:none;">
+    <div class="form-group">
+        <label for="newCaseName">Название дела:</label>
+        <input type="text" id="newCaseName" class="form-control" required>
+    </div>
+    <div class="form-group">
+        <label for="newCaseDescription">Описание:</label>
+        <textarea id="newCaseDescription" class="form-control" rows="3"></textarea>
+    </div>
+    <div id="newDeptSelect" class="form-group" style="display:none;">
+        <label for="newCaseDepartment">Департамент:</label>
+        <select id="newCaseDepartment" class="form-control"></select>
+    </div>
+    <div class="d-flex gap-2">
+        <button id="submitNewCase" class="btn btn-success">Создать</button>
+        <button id="cancelNewCase" class="btn btn-secondary">Отмена</button>
+    </div>
+</div>
+
+<table id="casesTable" class="table table-striped table-hover">
+    <thead class="thead-dark">
+        <tr>
+            <th style="width: 40px;"></th>
+            <th>Название дела</th>
+            <th>Описание</th>
+            <th id="deptHeader">Департамент</th>
+            <th>Томов</th>
+            <th>Всего страниц</th>
+            <th>Текущий том</th>
+            <th>Действия</th>
+        </tr>
+    </thead>
+    <tbody id="casesBody"></tbody>
+</table>
+
+<!-- Модальное окно для просмотра документов в томе -->
+<div class="modal fade" id="viewDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="viewModalTitle">Документы в томе</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="volumeInfo" class="mb-3">
+                    <p><strong>Том:</strong> <span id="volumeNumber"></span></p>
+                    <p><strong>Статус:</strong> <span id="volumeStatus"></span></p>
+                    <p><strong>Общее количество страниц:</strong> <span id="totalPages"></span></p>
+                    <p><strong>Диапазон страниц в томе:</strong> <span id="pagesRange"></span></p>
+                    <div id="verificationInfo" style="display:none;">
+                        <p><strong>Проверен:</strong> <span id="verifiedAt"></span></p>
+                        <p><strong>Проверил:</strong> <span id="verifiedBy"></span></p>
+                    </div>
+                </div>
+                <div id="verificationControls" class="mb-3" style="display:none;">
+                    <div class="alert alert-info">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="verifyCheckbox">
+                            <label class="form-check-label" for="verifyCheckbox">
+                                <strong>Подтверждаю проверку тома</strong>
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">
+                            После подтверждения том будет заблокирован для редактирования.
+                        </small>
+                    </div>
+                    <button id="verifyVolumeBtn" class="btn btn-success" disabled>
+                        <i class="fas fa-check-circle"></i> Подтвердить проверку
+                    </button>
+                </div>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>№ в томе</th>
+                            <th>Название документа</th>
+                            <th>Входящий №</th>
+                            <th>Исходящий №</th>
+                            <th>Страницы (в томе)</th>
+                            <th>Доп. информация</th>
+                        </tr>
+                    </thead>
+                    <tbody id="viewDocsTableBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+                <button type="button" class="btn btn-primary" id="editVolumeBtn" style="display:none;">
+                    <i class="fas fa-edit"></i> Редактировать том
+                </button>
+                <a href="#" class="btn btn-success" id="exportVolumeBtn" download style="display:none;">
+                    <i class="fas fa-file-excel"></i> Экспорт в Excel
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования тома -->
+<div class="modal fade" id="editVolumeModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактирование тома</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="alert alert-warning mb-3">
+                    <strong>Внимание!</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Вы можете изменять названия документов и количество страниц</li>
+                        <li>Вы можете изменять порядок документов перетаскиванием</li>
+                        <li>Вы можете удалять документы из тома</li>
+                        <li>Входящий и исходящий номера изменить нельзя</li>
+                        <li>После редактирования том должен содержать не более 250 страниц</li>
+                        <li>Нажмите "Рассчитать" для проверки перед сохранением</li>
+                    </ul>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="alert alert-info">
+                        <strong>Текущий том:</strong> <span id="editVolumeNumber"></span> |
+                        <strong>Страниц в томе:</strong> <span id="editCurrentPages"></span>/250 |
+                        <span id="editVolumeStatus"></span>
+                    </div>
+                </div>
+                
+                <table class="table table-striped table-editable" id="editVolumeTable">
+                    <thead class="thead-dark" style="position: sticky; top: 0; background: white; z-index: 10;">
+                        <tr>
+                            <th style="width: 60px;">Порядок</th>
+                            <th>Название документа</th>
+                            <th style="width: 120px;">Страниц</th>
+                            <th>Входящий №</th>
+                            <th>Исходящий №</th>
+                            <th>Доп. информация</th>
+                            <th style="width: 120px;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="editVolumeTableBody">
+                        <!-- Строки будут добавляться динамически -->
+                    </tbody>
+                </table>
+                
+                <div id="removedDocumentsSection" class="mt-3" style="display:none;">
+                    <div class="alert alert-danger">
+                        <strong>Документы, которые будут удалены из тома:</strong>
+                        <ul id="removedDocumentsList" class="mb-0 mt-2">
+                            <!-- Список удаляемых документов -->
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header bg-light">
+                        <strong>Проверка редактирования:</strong>
+                    </div>
+                    <div class="card-body">
+                        <div id="editCalculationResult" class="text-center">
+                            <p>Нажмите "Рассчитать" для проверки изменений</p>
+                        </div>
+                        <div class="text-center mt-2">
+                            <button type="button" class="btn btn-info" id="calculateEdit">Рассчитать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-success" id="saveEditedVolume" disabled>Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования документа в томе -->
+<div class="modal fade" id="editVolumeDocModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактирование документа в томе</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editVolumeDocTitle">Название документа:</label>
+                    <input type="text" id="editVolumeDocTitle" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="editVolumeDocPages">Количество страниц:</label>
+                    <input type="number" id="editVolumeDocPages" class="form-control" min="1" max="250">
+                </div>
+                <div class="form-group">
+                    <label for="editVolumeDocExtra">Дополнительная информация:</label>
+                    <textarea id="editVolumeDocExtra" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Входящий номер:</label>
+                    <input type="text" id="editVolumeDocIncoming" class="form-control" readonly style="background-color: #e9ecef;">
+                    <small class="form-text text-muted">Входящий номер нельзя изменить</small>
+                </div>
+                <div class="form-group">
+                    <label>Исходящий номер:</label>
+                    <input type="text" id="editVolumeDocOutgoing" class="form-control" readonly style="background-color: #e9ecef;">
+                    <small class="form-text text-muted">Исходящий номер нельзя изменить</small>
+                </div>
+                <input type="hidden" id="editVolumeDocId">
+                <input type="hidden" id="editVolumeDocRowIndex">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="saveVolumeDocChanges">Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения удаления документа -->
+<div class="modal fade" id="confirmDeleteDocModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить этот документ из тома?</p>
+                <p><strong>Документ:</strong> <span id="deleteDocTitle"></span></p>
+                <p><strong>Страниц:</strong> <span id="deleteDocPages"></span></p>
+                <div class="alert alert-warning">
+                    <small>После удаления страницы в томе будут пересчитаны автоматически.</small>
+                </div>
+                <input type="hidden" id="deleteDocId">
+                <input type="hidden" id="deleteDocRowIndex">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteDoc">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для предупреждения о непоместившихся документах -->
+<div class="modal fade" id="rejectedEditDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Документы, которые не поместятся</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <strong>Следующие документы не поместятся в том после редактирования и будут удалены:</strong>
+                </div>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID документа</th>
+                            <th>Название</th>
+                            <th>Причина</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rejectedEditDocsTableBody"></tbody>
+                </table>
+                <div class="alert alert-info mt-3">
+                    <p>Эти документы будут удалены из тома при сохранении изменений.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для выбора документов -->
+<div class="modal fade" id="selectDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Выбор документов</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info mb-3">
+                    <strong>Внимание!</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Выберите документы для добавления в дело</li>
+                        <li>Документы, уже используемые в других делах, недоступны для выбора</li>
+                        <li>После выбора вы сможете отредактировать данные документов</li>
+                    </ul>
+                </div>
+                
+                <table id="selectDocsTable" class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;"><input type="checkbox" id="selectAllDocs"></th>
+                            <th>Название</th>
+                            <th>Входящий №</th>
+                            <th>Исходящий №</th>
+                            <th style="width: 100px;">Страниц</th>
+                            <th>Доп. информация</th>
+                            <th style="width: 150px;">Местоположение</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="proceedToPreview">Далее: редактирование и добавление</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования и предпросмотра документов -->
+<div class="modal fade" id="previewDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Предпросмотр и редактирование документов</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="alert alert-warning mb-3">
+                    <strong>Редактирование документов перед добавлением:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Вы можете изменить название и количество страниц документов</li>
+                        <li>Изменения сохранятся в базе данных</li>
+                        <li>Документы будут добавлены в указанном порядке</li>
+                        <li>Текущий том: <span id="previewCurrentVolume" class="font-weight-bold"></span></li>
+                        <li>Свободно страниц: <span id="previewAvailablePages" class="font-weight-bold"></span></li>
+                    </ul>
+                </div>
+                
+                <div class="mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="sortByName">Сортировать по названию</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="sortByPages">Сортировать по страницам</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="restoreOrder">Восстановить порядок выбора</button>
+                </div>
+                
+                <table class="table table-striped table-editable" id="previewDocsTable">
+                    <thead class="thead-dark" style="position: sticky; top: 0; background: white; z-index: 10;">
+                        <tr>
+                            <th style="width: 60px;">Порядок</th>
+                            <th>Название документа</th>
+                            <th style="width: 120px;">Страниц</th>
+                            <th>Входящий №</th>
+                            <th>Исходящий №</th>
+                            <th>Доп. информация</th>
+                            <th style="width: 120px;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewDocsTableBody">
+                        <!-- Строки будут добавляться динамически -->
+                    </tbody>
+                </table>
+                
+                <div class="card mt-3">
+                    <div class="card-header bg-light">
+                        <strong>Предварительный расчет размещения:</strong>
+                    </div>
+                    <div class="card-body">
+                        <div id="previewCalculationResult" class="text-center">
+                            <p>Нажмите "Рассчитать размещение" для предварительного расчета</p>
+                        </div>
+                        <div class="text-center mt-2">
+                            <button type="button" class="btn btn-info" id="calculatePlacement">Рассчитать размещение</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="backToSelection">← Назад к выбору</button>
+                <button type="button" class="btn btn-success" id="saveAndAddDocuments">Сохранить изменения и добавить документы</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для отображения отклоненных документов -->
+<div class="modal fade" id="rejectedDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Отклоненные документы</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>Следующие документы не были добавлены:</strong>
+                </div>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th style="width: 80px;">Порядок</th>
+                            <th>ID документа</th>
+                            <th>Название</th>
+                            <th>Причина отклонения</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rejectedDocsTableBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для отображения документов, уже используемых в других делах -->
+<div class="modal fade" id="usedDocsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Документы, уже используемые в других делах</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <strong>Следующие документы уже используются в других делах и не могут быть добавлены:</strong>
+                </div>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID документа</th>
+                            <th>Название</th>
+                            <th>Дело</th>
+                            <th>Том</th>
+                            <th>Страницы</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usedDocsTableBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для редактирования документа -->
+<div class="modal fade" id="editDocModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактирование документа</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editDocTitle">Название документа:</label>
+                    <input type="text" id="editDocTitle" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="editDocPages">Количество страниц:</label>
+                    <input type="number" id="editDocPages" class="form-control" min="1" max="250">
+                </div>
+                <div class="form-group">
+                    <label for="editDocExtra">Дополнительная информация:</label>
+                    <textarea id="editDocExtra" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Входящий номер:</label>
+                    <input type="text" id="editDocIncoming" class="form-control" readonly style="background-color: #e9ecef;">
+                    <small class="form-text text-muted">Входящий номер нельзя изменить</small>
+                </div>
+                <div class="form-group">
+                    <label>Исходящий номер:</label>
+                    <input type="text" id="editDocOutgoing" class="form-control" readonly style="background-color: #e9ecef;">
+                    <small class="form-text text-muted">Исходящий номер нельзя изменить</small>
+                </div>
+                <input type="hidden" id="editDocId">
+                <input type="hidden" id="editDocRowIndex">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="saveDocChanges">Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+<!-- jQuery UI для перетаскивания -->
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+<!-- Font Awesome для иконок -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<style>
+    .case-row {
+        cursor: pointer;
+        background-color: #f8f9fa;
+        transition: background-color 0.2s;
+    }
+    .case-row:hover {
+        background-color: #e9ecef;
+    }
+    .volume-details {
+        background-color: #f1f3f4;
+    }
+    .volume-details td {
+        padding-left: 50px !important;
+    }
+    .expand-icon {
+        transition: transform 0.3s;
+        display: inline-block;
+    }
+    .expanded .expand-icon {
+        transform: rotate(90deg);
+    }
+    .location-badge {
+        font-size: 0.75em;
+        padding: 2px 6px;
+    }
+    .table-editable td {
+        vertical-align: middle;
+    }
+    .order-badge {
+        font-size: 12px;
+        padding: 4px 8px;
+        min-width: 30px;
+        text-align: center;
+        cursor: move;
+    }
+    .ui-sortable-helper {
+        background-color: white !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        display: table;
+    }
+    .ui-state-highlight {
+        height: 60px;
+        background-color: #f8f9fa;
+        border: 2px dashed #dee2e6;
+    }
+    .preview-accepted {
+        background-color: rgba(212, 237, 218, 0.3) !important;
+    }
+    .preview-rejected {
+        background-color: rgba(248, 215, 218, 0.3) !important;
+    }
+    .calculation-result {
+        font-size: 16px;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+    .calculation-success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    .calculation-warning {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
+    }
+    .calculation-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+    .btn-action {
+        padding: 2px 8px;
+        font-size: 12px;
+        margin: 0 2px;
+    }
+    .modal-body {
+        scrollbar-width: thin;
+        scrollbar-color: #adb5bd #f8f9fa;
+    }
+    .modal-body::-webkit-scrollbar {
+        width: 8px;
+    }
+    .modal-body::-webkit-scrollbar-track {
+        background: #f8f9fa;
+    }
+    .modal-body::-webkit-scrollbar-thumb {
+        background-color: #adb5bd;
+        border-radius: 4px;
+    }
+    .table-sticky thead th {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
+        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+    }
+    .verified-badge {
+        background-color: #28a745;
+        color: white;
+    }
+    .editable-badge {
+        background-color: #ffc107;
+        color: #212529;
+    }
+    .to-be-removed {
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        text-decoration: line-through;
+        opacity: 0.7;
+    }
+    .removed-doc-item {
+        padding: 5px 10px;
+        margin: 3px 0;
+        background-color: #f8d7da;
+        border-radius: 4px;
+        border-left: 4px solid #dc3545;
+    }
+    .to-be-removed {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+</style>
+
+<script>
+$(document).ready(function() {
+    var selectedCaseId = null;
+    var selectedCaseInfo = null;
+    var selectDocsTable = null;
+    var isModalOpening = false;
+    var expandedCases = {};
+    var selectedDocuments = []; // ID выбранных документов
+    var selectedDocumentsData = {}; // Данные выбранных документов
+    var originalSelectionOrder = []; // Исходный порядок выбора
+    var previewCalculationResult = null; // Результат предварительного расчета
+    var currentEditingDocId = null; // ID документа в режиме редактирования
+    var currentEditingRowIndex = null; // Индекс строки в режиме редактирования
+    var currentVolumeId = null; // ID текущего редактируемого тома
+    var currentVolumeData = null; // Данные текущего тома
+    var currentEditVolumeDocs = []; // Документы в редактируемом томе
+    var removedDocuments = []; // Документы, отмеченные для удаления
+    var removedDocumentsData = {}; // Данные удаляемых документов
+    
+    // Загрузка списка дел
+    function loadCases() {
+        console.log('Loading cases...');
+        $.ajax({
+            url: '/api/cases',
+            method: 'GET',
+            success: function(data) {
+                console.log('Cases loaded:', data);
+                var tbody = $('#casesBody');
+                tbody.empty();
+                var isAdmin = '{{ current_user.username }}' === 'admin';
+                
+                data.forEach(function(caseItem) {
+                    // Вычисляем общее количество страниц
+                    var totalPages = 0;
+                    var volumesCount = caseItem.volumes.length;
+                    
+                    caseItem.volumes.forEach(function(vol) {
+                        totalPages += (vol.pages_end - vol.pages_start + 1);
+                    });
+                    
+                    // Информация о текущем томе
+                    var currentVolumeInfo = 'Нет текущего тома';
+                    if (caseItem.current_volume) {
+                        var freePages = caseItem.current_volume.free_pages;
+                        var currentPages = caseItem.current_volume.total_pages;
+                        currentVolumeInfo = 'Том ' + caseItem.current_volume.volume_number + 
+                                          ' (' + currentPages + '/250 стр., свободно: ' + freePages + ' стр.)';
+                    }
+                    
+                    // Основная строка с делом
+                    var row = '<tr class="case-row" data-case-id="' + caseItem.case_id + '">';
+                    row += '<td class="text-center"><span class="expand-icon">▶</span></td>';
+                    row += '<td><strong>' + caseItem.name + '</strong></td>';
+                    row += '<td>' + (caseItem.description || '') + '</td>';
+                    row += '<td class="deptCell">' + caseItem.department + '</td>';
+                    row += '<td class="text-center">' + volumesCount + '</td>';
+                    row += '<td class="text-center">' + totalPages + ' стр.</td>';
+                    row += '<td>' + currentVolumeInfo + '</td>';
+                    row += '<td>';
+                    row += '<button class="btn btn-sm btn-outline-primary addDocsBtn mr-1" data-case-id="' + caseItem.case_id + '">Добавить документы</button>';
+                    row += '<a href="/api/cases/' + caseItem.case_id + '/export-excel" class="btn btn-sm btn-outline-success" download>Экспорт</a>';
+                    row += '</td>';
+                    row += '</tr>';
+                    
+                    tbody.append(row);
+                    
+                    // Строка с деталями томов
+                    var detailsRow = '<tr id="case-details-' + caseItem.case_id + '" class="volume-details" style="display:none;">';
+                    detailsRow += '<td colspan="8">';
+                    
+                    if (caseItem.volumes.length === 0) {
+                        detailsRow += '<div class="alert alert-warning m-0">Нет томов в этом деле</div>';
+                    } else {
+                        detailsRow += '<table class="table table-sm table-bordered m-0">';
+                        detailsRow += '<thead><tr>';
+                        detailsRow += '<th style="width: 100px;">Том</th>';
+                        detailsRow += '<th style="width: 150px;">Статус</th>';
+                        detailsRow += '<th style="width: 120px;">Страниц в томе</th>';
+                        detailsRow += '<th style="width: 120px;">Документов</th>';
+                        detailsRow += '<th style="width: 200px;">Действия</th>';
+                        detailsRow += '</tr></thead>';
+                        detailsRow += '<tbody>';
+                        
+                        caseItem.volumes.forEach(function(vol) {
+                            var pages_in_volume = vol.pages_end - vol.pages_start + 1;
+                            var status_badge = '';
+                            var status_text = '';
+                            var status_class = '';
+                            
+                            if (vol.is_verified) {
+                                status_badge = 'badge-success';
+                                status_text = 'Проверен';
+                                status_class = 'verified-badge';
+                            } else if (vol.is_full) {
+                                status_badge = 'badge-warning';
+                                status_text = 'Полный (250 стр.) - готов к проверке';
+                                status_class = 'editable-badge';
+                            } else if (pages_in_volume >= 200) {
+                                status_badge = 'badge-warning';
+                                status_text = 'Почти полный (' + pages_in_volume + '/250 стр.)';
+                            } else {
+                                status_badge = 'badge-info';
+                                status_text = pages_in_volume + '/250 стр.';
+                            }
+                            
+                            detailsRow += '<tr>';
+                            detailsRow += '<td class="text-center"><strong>Том ' + vol.volume_number + '</strong></td>';
+                            detailsRow += '<td><span class="badge ' + status_badge + ' ' + status_class + '">' + status_text + '</span></td>';
+                            detailsRow += '<td class="text-center">' + pages_in_volume + ' стр.</td>';
+                            detailsRow += '<td class="text-center">' + vol.documents_count + ' док.</td>';
+                            detailsRow += '<td>';
+                            detailsRow += '<button class="btn btn-xs btn-outline-primary viewDocsBtn mr-1" data-volume-id="' + vol.volume_id + '">Просмотр</button>';
+                            
+                            if (!vol.is_verified) {
+                                detailsRow += '<button class="btn btn-xs btn-outline-warning editVolumeBtn mr-1" data-volume-id="' + vol.volume_id + '" title="Редактировать том">';
+                                detailsRow += '<i class="fas fa-edit"></i> Редактировать';
+                                detailsRow += '</button>';
+                            }
+                            
+                            detailsRow += '<a href="/api/cases/' + caseItem.case_id + '/export-excel?volume=' + vol.volume_number + '" class="btn btn-xs btn-outline-success mr-1" download>Экспорт</a>';
+                            detailsRow += '</td>';
+                            detailsRow += '</tr>';
+                        });
+                        
+                        detailsRow += '</tbody></table>';
+                    }
+                    
+                    detailsRow += '</td></tr>';
+                    tbody.append(detailsRow);
+                });
+                
+                // Скрываем/показываем колонку департамента
+                if (!isAdmin) {
+                    $('.deptCell').hide();
+                    $('#deptHeader').hide();
+                }
+                
+                console.log('Cases table updated');
+            },
+            error: function(xhr) {
+                console.error('Error loading cases:', xhr);
+                alert('Ошибка загрузки дел: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Неизвестная ошибка'));
+            }
+        });
+    }
+    
+    // Загружаем дела при загрузке страницы
+    loadCases();
+    
+    // Обработчик клика на строку с делом (раскрытие/скрытие томов)
+    $('#casesBody').on('click', '.case-row', function(e) {
+        // Если клик был по кнопке внутри строки, не раскрываем/скрываем
+        if ($(e.target).closest('.addDocsBtn, .btn, a').length) {
+            return;
+        }
+        
+        var caseId = $(this).data('case-id');
+        var detailsRow = $('#case-details-' + caseId);
+        var expandIcon = $(this).find('.expand-icon');
+        
+        if (detailsRow.is(':visible')) {
+            detailsRow.hide();
+            $(this).removeClass('expanded');
+            expandIcon.text('▶');
+            delete expandedCases[caseId];
+        } else {
+            detailsRow.show();
+            $(this).addClass('expanded');
+            expandIcon.text('▼');
+            expandedCases[caseId] = true;
+        }
+    });
+    
+    // Обработчик для кнопки "Добавить документы"
+    $('#casesBody').on('click', '.addDocsBtn', function(e) {
+        e.stopPropagation();
+        selectedCaseId = $(this).data('case-id');
+        openSelectDocsModal();
+    });
+    
+    // Обработчик для кнопок просмотра в деталях тома
+    $('#casesBody').on('click', '.viewDocsBtn', function(e) {
+        e.stopPropagation();
+        var volId = $(this).data('volume-id');
+        openViewDocsModal(volId);
+    });
+    
+    // Обработчик для кнопки редактирования тома
+    $('#casesBody').on('click', '.editVolumeBtn', function(e) {
+        e.stopPropagation();
+        var volId = $(this).data('volume-id');
+        openEditVolumeModal(volId);
+    });
+    
+    // Открытие модального окна просмотра документов в томе
+    function openViewDocsModal(volId) {
+        currentVolumeId = volId;
+        
+        $.ajax({
+            url: '/api/volumes/' + volId,
+            method: 'GET',
+            success: function(data) {
+                currentVolumeData = data;
+                
+                $('#viewModalTitle').text('Документы в томе ' + data.volume_number);
+                $('#volumeNumber').text(data.volume_number);
+                $('#totalPages').text(data.total_pages + ' стр.');
+                $('#pagesRange').text(data.pages_range);
+                
+                var status = '';
+                if (data.is_verified) {
+                    status = '<span class="badge badge-success">Проверен</span>';
+                    $('#verificationInfo').show();
+                    var verifiedDate = new Date(data.verified_at);
+                    $('#verifiedAt').text(verifiedDate.toLocaleString('ru-RU'));
+                    $('#verifiedBy').text(data.verifier_name || 'Неизвестно');
+                } else if (data.is_full) {
+                    status = '<span class="badge badge-warning">Полный (250 стр.) - готов к проверке</span>';
+                    $('#verificationInfo').hide();
+                } else {
+                    status = '<span class="badge badge-info">' + data.total_pages + '/250 стр.</span>';
+                    $('#verificationInfo').hide();
+                }
+                $('#volumeStatus').html(status);
+                
+                // Показываем/скрываем элементы управления
+                if (!data.is_verified) {
+                    $('#verificationControls').show();
+                    $('#editVolumeBtn').show();
+                    $('#exportVolumeBtn').show();
+                    $('#exportVolumeBtn').attr('href', '/api/cases/' + data.case_id + '/export-excel?volume=' + data.volume_number);
+                } else {
+                    $('#verificationControls').hide();
+                    $('#editVolumeBtn').hide();
+                    $('#exportVolumeBtn').show();
+                    $('#exportVolumeBtn').attr('href', '/api/cases/' + data.case_id + '/export-excel?volume=' + data.volume_number);
+                }
+                
+                var tbody = $('#viewDocsTableBody');
+                tbody.empty();
+                
+                if (data.documents && data.documents.length > 0) {
+                    data.documents.forEach(function(doc) {
+                        var row = '<tr>';
+                        row += '<td class="text-center"><strong>' + doc.order + '</strong></td>';
+                        row += '<td>' + doc.title + '</td>';
+                        row += '<td>' + (doc.incoming_number || '-') + '</td>';
+                        row += '<td>' + (doc.outgoing_number || '-') + '</td>';
+                        row += '<td class="text-center">' + doc.start_page + '-' + doc.end_page + '</td>';
+                        row += '<td>' + (doc.extra_info || '') + '</td>';
+                        row += '</tr>';
+                        tbody.append(row);
+                    });
+                } else {
+                    tbody.append('<tr><td colspan="6" class="text-center">Нет документов в этом томе</td></tr>');
+                }
+                
+                $('#viewDocsModal').modal('show');
+            },
+            error: function(xhr) {
+                alert('Ошибка: ' + (xhr.responseJSON ? xhr.responseJSON.error : xhr.responseText));
+            }
+        });
+    }
+    
+    // Открытие модального окна редактирования тома
+    function openEditVolumeModal(volId) {
+        currentVolumeId = volId;
+        removedDocuments = []; // Сбрасываем список удаляемых документов
+        removedDocumentsData = {};
+        
+        $.ajax({
+            url: '/api/volumes/' + volId,
+            method: 'GET',
+            success: function(data) {
+                currentVolumeData = data;
+                currentEditVolumeDocs = data.documents;
+                
+                $('#editVolumeNumber').text(data.volume_number);
+                $('#editCurrentPages').text(data.total_pages);
+                
+                if (data.is_verified) {
+                    $('#editVolumeStatus').html('<span class="badge badge-success">Том проверен - редактирование невозможно</span>');
+                    $('#saveEditedVolume').prop('disabled', true).hide();
+                } else {
+                    $('#editVolumeStatus').html('<span class="badge badge-warning">Том можно редактировать</span>');
+                    $('#saveEditedVolume').prop('disabled', false).show();
+                }
+                
+                // Обновляем список удаляемых документов
+                updateRemovedDocumentsList();
+                
+                // Заполняем таблицу редактирования
+                fillEditVolumeTable();
+                
+                $('#editVolumeModal').modal('show');
+            },
+            error: function(xhr) {
+                alert('Ошибка загрузки данных тома: ' + (xhr.responseJSON ? xhr.responseJSON.error : xhr.responseText));
+            }
+        });
+    }
+    
+    // Обновление списка удаляемых документов
+    function updateRemovedDocumentsList() {
+        var list = $('#removedDocumentsList');
+        list.empty();
+        
+        if (removedDocuments.length > 0) {
+            $('#removedDocumentsSection').show();
+            removedDocuments.forEach(function(docId) {
+                var docData = removedDocumentsData[docId];
+                if (docData) {
+                    var item = $('<li class="removed-doc-item"></li>');
+                    item.html('<strong>' + docData.title + '</strong> (' + docData.pages + ' стр.)');
+                    list.append(item);
+                }
+            });
+        } else {
+            $('#removedDocumentsSection').hide();
+        }
+    }
+    
+    // Заполнение таблицы редактирования тома
+    function fillEditVolumeTable() {
+        var tbody = $('#editVolumeTableBody');
+        tbody.empty();
+        
+        currentEditVolumeDocs.forEach(function(doc, index) {
+            // Пропускаем документы, отмеченные для удаления
+            if (removedDocuments.includes(doc.document_id)) {
+                return;
+            }
+            
+            var pages = doc.end_page - doc.start_page + 1;
+            var row = '<tr data-doc-id="' + doc.document_id + '" data-row-index="' + index + '">';
+            row += '<td class="text-center">';
+            row += '<span class="badge badge-primary order-badge">' + (index + 1) + '</span>';
+            row += '</td>';
+            row += '<td><span class="edit-doc-title-display">' + (doc.title || '') + '</span></td>';
+            row += '<td class="text-center"><span class="edit-doc-pages-display">' + pages + '</span></td>';
+            row += '<td><span class="edit-doc-incoming-display">' + (doc.incoming_number || '-') + '</span></td>';
+            row += '<td><span class="edit-doc-outgoing-display">' + (doc.outgoing_number || '-') + '</span></td>';
+            row += '<td><span class="edit-doc-extra-display">' + (doc.extra_info || '') + '</span></td>';
+            row += '<td class="text-center">';
+            row += '<button class="btn btn-sm btn-outline-primary btn-action edit-volume-doc-btn" title="Редактировать">';
+            row += '<i class="fas fa-edit"></i>';
+            row += '</button> ';
+            row += '<button class="btn btn-sm btn-outline-danger btn-action delete-volume-doc-btn" title="Удалить из тома">';
+            row += '<i class="fas fa-trash"></i>';
+            row += '</button>';
+            row += '</td>';
+            row += '</tr>';
+            tbody.append(row);
+        });
+        
+        // Инициализация перетаскивания строк
+        initEditTableSorting();
+        
+        // Добавляем обработчики для кнопок
+        addEditVolumeTableHandlers();
+    }
+    
+    // Инициализация перетаскивания строк в таблице редактирования
+    function initEditTableSorting() {
+        $("#editVolumeTable tbody").sortable({
+            handle: ".order-badge, td:not(:last-child)",
+            placeholder: "ui-state-highlight",
+            opacity: 0.7,
+            start: function(event, ui) {
+                ui.placeholder.height(ui.item.height());
+            },
+            update: function(event, ui) {
+                // Обновляем порядок после перетаскивания
+                updateEditVolumeTableOrder();
+            }
+        }).disableSelection();
+    }
+    
+    // Обновление порядка в таблице редактирования
+function updateEditVolumeTableOrder() {
+    var newDocs = [];
+    $("#editVolumeTable tbody tr").each(function(index) {
+        var $row = $(this);
+        var docId = parseInt($row.data('doc-id'));
+        
+        // Находим документ в исходном массиве
+        var originalDoc = currentEditVolumeDocs.find(function(doc) {
+            return doc.document_id === docId;
+        });
+        
+        if (originalDoc && !removedDocuments.includes(docId)) {
+            newDocs.push(originalDoc);
+            // Обновляем индекс строки
+            $row.data('row-index', index);
+            // Обновляем номер порядка
+            $row.find('.order-badge').text(index + 1);
+        }
+    });
+    
+    // Обновляем массив документов НЕ удаляя отмеченные для удаления
+    // Они остаются в currentEditVolumeDocs, но помечаются в removedDocuments
+    currentEditVolumeDocs = currentEditVolumeDocs.filter(function(doc) {
+        // Оставляем все документы, но для отмеченных к удалению ставим флаг
+        return true;
+    });
+    
+    // Обновляем порядок в соответствии с таблицей
+    var reorderedDocs = [];
+    newDocs.forEach(function(docId) {
+        var doc = currentEditVolumeDocs.find(function(d) {
+            return d.document_id === docId;
+        });
+        if (doc) {
+            reorderedDocs.push(doc);
+        }
+    });
+    
+    // Обновляем currentEditVolumeDocs
+    currentEditVolumeDocs = reorderedDocs;
+}
+    
+    
+    
+    // Добавление обработчиков для таблицы редактирования - УПРОЩЕННАЯ ВЕРСИЯ
+function addEditVolumeTableHandlers() {
+    // Обработчик кнопки редактирования
+    $('.edit-volume-doc-btn').off('click').on('click', function(e) {
+        e.stopPropagation();
+        var row = $(this).closest('tr');
+        var docId = parseInt(row.data('doc-id'));
+        openEditVolumeDocModal(docId);
+    });
+    
+    // Обработчик кнопки удаления
+    $('.delete-volume-doc-btn').off('click').on('click', function(e) {
+        e.stopPropagation();
+        var row = $(this).closest('tr');
+        var docId = parseInt(row.data('doc-id'));
+        var docTitle = row.find('.edit-doc-title-display').text();
+        var docPages = row.find('.edit-doc-pages-display').text();
+        
+        // Сохраняем данные для модального окна
+        window.pendingDeleteDoc = {
+            id: docId,
+            title: docTitle,
+            pages: docPages,
+            row: row
+        };
+        
+        $('#deleteDocTitle').text(docTitle);
+        $('#deleteDocPages').text(docPages);
+        $('#confirmDeleteDocModal').modal('show');
+    });
+}
+
+// Подтверждение удаления документа из тома - УПРОЩЕННАЯ ВЕРСИЯ
+$('#confirmDeleteDoc').on('click', function() {
+    if (!window.pendingDeleteDoc) return;
+    
+    var docId = window.pendingDeleteDoc.id;
+    var docTitle = window.pendingDeleteDoc.title;
+    var docPages = window.pendingDeleteDoc.pages;
+    var row = window.pendingDeleteDoc.row;
+    
+    // Находим данные документа
+    var docData = currentEditVolumeDocs.find(function(doc) {
+        return doc.document_id === docId;
+    });
+    
+    if (docData) {
+        // Добавляем документ в список удаляемых
+        if (!removedDocuments.includes(docId)) {
+            removedDocuments.push(docId);
+            removedDocumentsData[docId] = {
+                id: docId,
+                title: docTitle,
+                pages: docPages
+            };
+            
+            // Визуально помечаем строку как удаленную
+            row.addClass('to-be-removed');
+            row.find('td').css('opacity', '0.5');
+            row.find('.delete-volume-doc-btn').prop('disabled', true);
+            
+            // Обновляем список удаляемых документов
+            updateRemovedDocumentsList();
+            
+            // Сбрасываем результат расчета
+            $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
+            $('#saveEditedVolume').prop('disabled', true);
+        }
+    }
+    
+    // Очищаем временные данные
+    window.pendingDeleteDoc = null;
+    $('#confirmDeleteDocModal').modal('hide');
+});
+
+// И обновите fillEditVolumeTable() чтобы восстановить удаленные документы
+function fillEditVolumeTable() {
+    var tbody = $('#editVolumeTableBody');
+    tbody.empty();
+    
+    currentEditVolumeDocs.forEach(function(doc, index) {
+        var pages = doc.pages_count || (doc.end_page - doc.start_page + 1);
+        var isRemoved = removedDocuments.includes(doc.document_id);
+        
+        var row = '<tr data-doc-id="' + doc.document_id + '" data-row-index="' + index + '"';
+        if (isRemoved) {
+            row += ' class="to-be-removed"';
+        }
+        row += '>';
+        
+        row += '<td class="text-center">';
+        row += '<span class="badge badge-primary order-badge">' + (index + 1) + '</span>';
+        row += '</td>';
+        row += '<td><span class="edit-doc-title-display">' + (doc.title || '') + '</span></td>';
+        row += '<td class="text-center"><span class="edit-doc-pages-display">' + pages + '</span></td>';
+        row += '<td><span class="edit-doc-incoming-display">' + (doc.incoming_number || '-') + '</span></td>';
+        row += '<td><span class="edit-doc-outgoing-display">' + (doc.outgoing_number || '-') + '</span></td>';
+        row += '<td><span class="edit-doc-extra-display">' + (doc.extra_info || '') + '</span></td>';
+        row += '<td class="text-center">';
+        row += '<button class="btn btn-sm btn-outline-primary btn-action edit-volume-doc-btn" title="Редактировать"';
+        if (isRemoved) row += ' disabled';
+        row += '>';
+        row += '<i class="fas fa-edit"></i>';
+        row += '</button> ';
+        row += '<button class="btn btn-sm btn-outline-danger btn-action delete-volume-doc-btn" title="Удалить из тома"';
+        if (isRemoved) row += ' disabled';
+        row += '>';
+        row += '<i class="fas fa-trash"></i>';
+        row += '</button>';
+        row += '</td>';
+        row += '</tr>';
+        tbody.append(row);
+    });
+    
+    // Инициализация перетаскивания строк
+    initEditTableSorting();
+    
+    // Добавляем обработчики для кнопок
+    addEditVolumeTableHandlers();
+}
+    
+    // Подтверждение удаления документа из тома
+$('#confirmDeleteDoc').on('click', function() {
+    var docId = parseInt($('#deleteDocId').val());
+    
+    // Находим данные документа
+    var docIndex = currentEditVolumeDocs.findIndex(function(doc) {
+        return doc.document_id === docId;
+    });
+    
+    if (docIndex !== -1) {
+        var docData = currentEditVolumeDocs[docIndex];
+        
+        // Добавляем документ в список удаляемых
+        if (!removedDocuments.includes(docId)) {
+            removedDocuments.push(docId);
+            removedDocumentsData[docId] = {
+                id: docId,
+                title: docData.title,
+                pages: docData.end_page - docData.start_page + 1
+            };
+            
+            // Удаляем строку из таблицы
+            $('tr[data-doc-id="' + docId + '"]').remove();
+            
+            // Обновляем порядок и индексы
+            updateEditVolumeTableOrder();
+            
+            // Обновляем список удаляемых документов
+            updateRemovedDocumentsList();
+            
+            // Сбрасываем результат расчета
+            $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
+            $('#saveEditedVolume').prop('disabled', true);
+        }
+    }
+    
+    $('#confirmDeleteDocModal').modal('hide');
+});
+    
+
+    // Открытие модального окна редактирования документа в томе
+    function openEditVolumeDocModal(docId, rowIndex) {
+        var doc = currentEditVolumeDocs.find(function(d) {
+            return d.document_id === docId;
+        });
+        
+        if (!doc) return;
+        
+        var pages = doc.end_page - doc.start_page + 1;
+        
+        $('#editVolumeDocTitle').val(doc.title || '');
+        $('#editVolumeDocPages').val(pages);
+        $('#editVolumeDocIncoming').val(doc.incoming_number || '');
+        $('#editVolumeDocOutgoing').val(doc.outgoing_number || '');
+        $('#editVolumeDocExtra').val(doc.extra_info || '');
+        $('#editVolumeDocId').val(docId);
+        $('#editVolumeDocRowIndex').val(rowIndex);
+        
+        $('#editVolumeDocModal').modal('show');
+    }
+    
+    // Сохранение изменений документа в томе
+    $('#saveVolumeDocChanges').on('click', function() {
+        var docId = $('#editVolumeDocId').val();
+        var rowIndex = $('#editVolumeDocRowIndex').val();
+        var doc = currentEditVolumeDocs.find(function(d) {
+            return d.document_id === parseInt(docId);
+        });
+        
+        if (!doc) return;
+        
+        // Получаем новые значения
+        var newTitle = $('#editVolumeDocTitle').val().trim();
+        var newPages = parseInt($('#editVolumeDocPages').val()) || 1;
+        var newExtra = $('#editVolumeDocExtra').val().trim();
+        
+        // Валидация
+        if (!newTitle) {
+            alert('Введите название документа');
+            return;
+        }
+        
+        if (newPages < 1 || newPages > 250) {
+            alert('Количество страниц должно быть от 1 до 250');
+            return;
+        }
+        
+        // Обновляем данные документа
+        doc.title = newTitle;
+        doc.extra_info = newExtra;
+        // Сохраняем новое количество страниц для пересчета
+        doc.pages_count = newPages;
+        
+        // Обновляем отображение в таблице
+        var row = $('#editVolumeTable tbody tr[data-doc-id="' + docId + '"]');
+        row.find('.edit-doc-title-display').text(newTitle);
+        row.find('.edit-doc-pages-display').text(newPages);
+        row.find('.edit-doc-extra-display').text(newExtra || '');
+        
+        // Закрываем модальное окно
+        $('#editVolumeDocModal').modal('hide');
+        
+        // Сбрасываем результат расчета
+        $('#editCalculationResult').html('<p>Нажмите "Рассчитать" для проверки изменений</p>');
+        $('#saveEditedVolume').prop('disabled', true);
+    });
+    
+    // Рассчет редактирования тома
+    $('#calculateEdit').on('click', function() {
+        // Подготавливаем данные для отправки (только документы, которые не удалены)
+        var documentsData = currentEditVolumeDocs
+            .filter(function(doc) {
+                return !removedDocuments.includes(doc.document_id);
+            })
+            .map(function(doc, index) {
+                return {
+                    id: doc.document_id,
+                    title: doc.title,
+                    pages_count: doc.pages_count || (doc.end_page - doc.start_page + 1),
+                    pages: doc.pages_count || (doc.end_page - doc.start_page + 1),
+                    incoming_number: doc.incoming_number,
+                    outgoing_number: doc.outgoing_number,
+                    extra_info: doc.extra_info
+                };
+            });
+        
+        if (documentsData.length === 0) {
+            alert('В томе не осталось документов после удаления');
+            return;
+        }
+        
+        // Отправляем запрос на предварительный расчет
+        $.ajax({
+            url: '/api/volumes/' + currentVolumeId + '/preview-edit',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ 
+                documents: documentsData,
+                removed_documents: removedDocuments 
+            }),
+            success: function(data) {
+                updateEditCalculationDisplay(data);
+                
+                // Показываем предупреждение о документах, которые не поместятся
+                if (data.rejected_documents && data.rejected_documents.length > 0) {
+                    showRejectedEditDocuments(data.rejected_documents);
+                }
+            },
+            error: function(xhr) {
+                console.error('Error calculating edit:', xhr);
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    alert('Ошибка: ' + xhr.responseJSON.error);
+                    
+                    // Показываем предупреждение о документах, которые не поместятся
+                    if (xhr.responseJSON.rejected_documents) {
+                        showRejectedEditDocuments(xhr.responseJSON.rejected_documents);
+                    }
+                } else {
+                    alert('Ошибка при расчете редактирования: Неизвестная ошибка');
+                }
+            }
+        });
+    });
+    
+    // Показать документы, которые не поместятся
+    function showRejectedEditDocuments(rejectedDocs) {
+        var tbody = $('#rejectedEditDocsTableBody');
+        tbody.empty();
+        
+        rejectedDocs.forEach(function(doc) {
+            var row = '<tr>';
+            row += '<td>' + doc.id + '</td>';
+            row += '<td>' + doc.title + '</td>';
+            row += '<td>' + doc.reason + '</td>';
+            row += '</tr>';
+            tbody.append(row);
+        });
+        
+        $('#rejectedEditDocsModal').modal('show');
+    }
+    
+    // Обновление отображения результата расчета редактирования
+    function updateEditCalculationDisplay(data) {
+        var resultDiv = $('#editCalculationResult');
+        
+        var html = '<div class="calculation-result ';
+        
+        if (data.can_save) {
+            html += 'calculation-success">';
+            html += '<h5 class="mb-2"><i class="fas fa-check-circle"></i> Изменения можно сохранить</h5>';
+            $('#saveEditedVolume').prop('disabled', false);
+        } else {
+            html += 'calculation-error">';
+            html += '<h5 class="mb-2"><i class="fas fa-times-circle"></i> Изменения нельзя сохранить</h5>';
+            $('#saveEditedVolume').prop('disabled', true);
+        }
+        
+        html += '<p><strong>Страниц после редактирования:</strong> ' + data.total_pages + '/250</p>';
+        html += '<p><strong>Документов останется:</strong> ' + data.updated_entries.length + '</p>';
+        
+        if (removedDocuments.length > 0) {
+            html += '<p><strong>Будет удалено документов:</strong> ' + removedDocuments.length + '</p>';
+        }
+        
+        if (data.rejected && data.rejected.length > 0) {
+            html += '<p><strong>Документов не поместится:</strong> ' + data.rejected.length + '</p>';
+        }
+        
+        html += '<p>' + data.message + '</p>';
+        html += '</div>';
+        
+        resultDiv.html(html);
+    }
+    
+    // Сохранение отредактированного тома
+    $('#saveEditedVolume').on('click', function() {
+        // Подготавливаем данные для отправки
+        var documentsData = currentEditVolumeDocs
+            .filter(function(doc) {
+                return !removedDocuments.includes(doc.document_id);
+            })
+            .map(function(doc, index) {
+                return {
+                    id: doc.document_id,
+                    title: doc.title,
+                    pages_count: doc.pages_count || (doc.end_page - doc.start_page + 1),
+                    pages: doc.pages_count || (doc.end_page - doc.start_page + 1),
+                    incoming_number: doc.incoming_number,
+                    outgoing_number: doc.outgoing_number,
+                    extra_info: doc.extra_info
+                };
+            });
+        
+        if (documentsData.length === 0 && removedDocuments.length === 0) {
+            alert('Не внесено изменений для сохранения');
+            return;
+        }
+        
+        var confirmMessage = 'Вы уверены, что хотите сохранить изменения?\n\n';
+        confirmMessage += 'После сохранения:\n';
+        confirmMessage += '- В томе останется ' + documentsData.length + ' документов\n';
+        confirmMessage += '- Будет удалено ' + removedDocuments.length + ' документов\n';
+        confirmMessage += '- Всего страниц в томе: ' + ($('#editCalculationResult').find('strong').eq(0).text().split(': ')[1] || '?') + '\n\n';
+        confirmMessage += 'Это действие нельзя отменить.';
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/volumes/' + currentVolumeId + '/edit',
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ 
+                documents: documentsData,
+                removed_documents: removedDocuments 
+            }),
+            success: function(data) {
+                alert('Том успешно отредактирован!\n\n' +
+                      'Документов осталось: ' + data.documents_count + '\n' +
+                      'Удалено документов: ' + data.removed_count + '\n' +
+                      'Всего страниц: ' + data.total_pages + '/250');
+                
+                $('#editVolumeModal').modal('hide');
+                loadCases(); // Обновляем список дел
+            },
+            error: function(xhr) {
+                console.error('Error saving edited volume:', xhr);
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    alert('Ошибка: ' + xhr.responseJSON.error);
+                    
+                    // Показываем документы, которые не поместятся
+                    if (xhr.responseJSON.rejected_documents) {
+                        showRejectedEditDocuments(xhr.responseJSON.rejected_documents);
+                    }
+                } else {
+                    alert('Ошибка при сохранении тома: Неизвестная ошибка');
+                }
+            }
+        });
+    });
+    
+    // Обработчик галочки подтверждения проверки
+    $('#verifyCheckbox').on('change', function() {
+        $('#verifyVolumeBtn').prop('disabled', !$(this).is(':checked'));
+    });
+    
+    // Подтверждение проверки тома
+    $('#verifyVolumeBtn').on('click', function() {
+        if (!confirm('Вы уверены, что хотите подтвердить проверку этого тома?\n\nПосле подтверждения:\n1. Том будет заблокирован для редактирования\n2. Если том полный, будет создан новый том для продолжения работы')) {
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/volumes/' + currentVolumeId + '/verify',
+            method: 'POST',
+            success: function(data) {
+                alert('Том успешно проверен и подтвержден!\n\n' +
+                      'Проверил: ' + data.verified_by + '\n' +
+                      'Дата проверки: ' + new Date(data.verified_at).toLocaleString('ru-RU'));
+                
+                if (data.new_volume_created) {
+                    alert('Создан новый том для продолжения работы.');
+                }
+                
+                $('#viewDocsModal').modal('hide');
+                loadCases(); // Обновляем список дел
+            },
+            error: function(xhr) {
+                console.error('Error verifying volume:', xhr);
+                alert('Ошибка при подтверждении тома: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Неизвестная ошибка'));
+            }
+        });
+    });
+    
+    // Кнопка редактирования тома в окне просмотра
+    $('#editVolumeBtn').on('click', function() {
+        $('#viewDocsModal').modal('hide');
+        setTimeout(function() {
+            openEditVolumeModal(currentVolumeId);
+        }, 300);
+    });
+    
+    // ================== ОСТАЛЬНЫЙ КОД (не изменялся) ==================
+    
+    // Открытие модального окна выбора документов
+    function openSelectDocsModal() {
+        if (isModalOpening) return;
+        isModalOpening = true;
+        
+        // Сбрасываем выбранные документы
+        selectedDocuments = [];
+        selectedDocumentsData = {};
+        originalSelectionOrder = [];
+        
+        // Получаем информацию о текущем деле
+        $.ajax({
+            url: '/api/cases',
+            method: 'GET',
+            success: function(data) {
+                var caseInfo = data.find(function(c) {
+                    return c.case_id === selectedCaseId;
+                });
+                
+                if (caseInfo) {
+                    selectedCaseInfo = caseInfo;
+                }
+                
+                // Инициализируем таблицу выбора документов
+                initSelectDocsTable();
+                
+                $('#selectDocsModal').modal('show');
+                isModalOpening = false;
+            },
+            error: function(xhr) {
+                alert('Ошибка загрузки информации о деле');
+                isModalOpening = false;
+            }
+        });
+    }
+    
+    // Инициализация таблицы выбора документов
+    function initSelectDocsTable() {
+        if (!selectDocsTable) {
+            selectDocsTable = $('#selectDocsTable').DataTable({
+                serverSide: true,
+                ajax: {
+                    url: '/api/documents',
+                    dataSrc: function(json) {
+                        return json.data;
+                    }
+                },
+                columns: [
+                    { 
+                        data: null, 
+                        orderable: false, 
+                        className: 'text-center',
+                        render: function(data, type, row) {
+                            var isSelected = selectedDocuments.includes(row.id);
+                            var isDisabled = row.location ? true : false;
+                            var checkbox = '<input type="checkbox" class="docCheckbox" value="' + row.id + '"';
+                            
+                            if (isSelected) {
+                                checkbox += ' checked';
+                            }
+                            
+                            if (isDisabled) {
+                                checkbox += ' disabled title="Документ уже используется в другом деле"';
+                            }
+                            
+                            checkbox += '>';
+                            return checkbox;
+                        }
+                    },
+                    { 
+                        data: 'title',
+                        render: function(data, type, row) {
+                            var html = '<strong>' + data + '</strong>';
+                            if (row.location) {
+                                html += ' <span class="badge badge-warning location-badge" title="Уже используется">Используется</span>';
+                            }
+                            return html;
+                        }
+                    },
+                    { 
+                        data: 'incoming_number',
+                        render: function(data) {
+                            return data || '-';
+                        }
+                    },
+                    { 
+                        data: 'outgoing_number',
+                        render: function(data) {
+                            return data || '-';
+                        }
+                    },
+                    { 
+                        data: 'pages_count',
+                        className: 'text-center',
+                        render: function(data) {
+                            return '<span class="badge badge-info">' + data + ' стр.</span>';
+                        }
+                    },
+                    { 
+                        data: 'extra_info',
+                        render: function(data) {
+                            return data || '-';
+                        }
+                    },
+                    { 
+                        data: 'location',
+                        render: function(data) {
+                            if (!data) {
+                                return '<span class="badge badge-secondary">Не используется</span>';
+                            } else {
+                                var html = '<div class="location-info">';
+                                html += '<div><small><strong>Дело:</strong> ' + data.case_name + '</small></div>';
+                                html += '<div><small><strong>Том:</strong> ' + data.volume_number + '</small></div>';
+                                html += '</div>';
+                                return html;
+                            }
+                        }
+                    }
+                ],
+                language: {
+                    url: "//cdn.datatables.net/plug-ins/1.13.4/i18n/ru.json"
+                },
+                pageLength: 10,
+                lengthMenu: [[5, 10, 25, 50], [5, 10, 25, 50]],
+                drawCallback: function() {
+                    // Обновляем чекбоксы после перерисовки таблица
+                    $('.docCheckbox').each(function() {
+                        var docId = parseInt($(this).val());
+                        $(this).prop('checked', selectedDocuments.includes(docId));
+                    });
+                }
+            });
+        } else {
+            selectDocsTable.ajax.reload();
+        }
+    }
+    
+    // Обработчик выбора/снятия выбора документа в таблице выбора
+    $('#selectDocsTable').on('change', '.docCheckbox', function() {
+        var docId = parseInt($(this).val());
+        var isChecked = $(this).is(':checked');
+        var row = selectDocsTable.row($(this).closest('tr'));
+        var rowData = row.data();
+        
+        if (isChecked && !$(this).is(':disabled')) {
+            // Добавляем документ в выбранные
+            if (!selectedDocuments.includes(docId)) {
+                selectedDocuments.push(docId);
+                selectedDocumentsData[docId] = {
+                    id: docId,
+                    title: rowData.title,
+                    pages_count: rowData.pages_count,
+                    pages: rowData.pages_count,
+                    incoming_number: rowData.incoming_number || '',
+                    outgoing_number: rowData.outgoing_number || '',
+                    extra_info: rowData.extra_info || '',
+                    location: rowData.location
+                };
+                
+                console.log('Document added to selection:', docId, 'Total selected:', selectedDocuments.length);
+            }
+        } else {
+            // Удаляем документ из выбранных
+            removeDocumentFromSelection(docId);
+        }
+    });
+    
+    // Удаление документа из выбранных
+    function removeDocumentFromSelection(docId) {
+        var index = selectedDocuments.indexOf(docId);
+        if (index > -1) {
+            selectedDocuments.splice(index, 1);
+            delete selectedDocumentsData[docId];
+            
+            // Снимаем выделение в таблице
+            $('.docCheckbox[value="' + docId + '"]').prop('checked', false);
+        }
+    }
+    
+    // Обработчик "Выбрать все" в таблице выбора
+    $('#selectAllDocs').on('click', function() {
+        var isChecked = $(this).is(':checked');
+        
+        // Находим все доступные чекбоксы на текущей странице
+        $('.docCheckbox:not(:disabled)').each(function() {
+            var docId = parseInt($(this).val());
+            var row = selectDocsTable.row($(this).closest('tr'));
+            var rowData = row.data();
+            
+            if (isChecked && !selectedDocuments.includes(docId)) {
+                selectedDocuments.push(docId);
+                selectedDocumentsData[docId] = {
+                    id: docId,
+                    title: rowData.title,
+                    pages_count: rowData.pages_count,
+                    pages: rowData.pages_count,
+                    incoming_number: rowData.incoming_number || '',
+                    outgoing_number: rowData.outgoing_number || '',
+                    extra_info: rowData.extra_info || '',
+                    location: rowData.location
+                };
+                $(this).prop('checked', true);
+            } else if (!isChecked && selectedDocuments.includes(docId)) {
+                removeDocumentFromSelection(docId);
+                $(this).prop('checked', false);
+            }
+        });
+    });
+    
+    // Переход к окну предпросмотра и редактирования
+    $('#proceedToPreview').on('click', function() {
+        if (selectedDocuments.length === 0) {
+            alert('Выберите хотя бы один доступный документ');
+            return;
+        }
+        
+        // Проверяем, есть ли уже используемые документы в выборе
+        var usedDocs = [];
+        selectedDocuments.forEach(function(docId) {
+            var docData = selectedDocumentsData[docId];
+            if (docData && docData.location) {
+                usedDocs.push({
+                    id: docId,
+                    title: docData.title,
+                    location: docData.location
+                });
+            }
+        });
+        
+        if (usedDocs.length > 0) {
+            showUsedDocuments(usedDocs);
+            return;
+        }
+        
+        // Сохраняем исходный порядок выбора
+        originalSelectionOrder = [...selectedDocuments];
+        
+        // Закрываем окно выбора и открываем окно предпросмотра
+        $('#selectDocsModal').modal('hide');
+        openPreviewDocsModal();
+    });
+    
+    // Открытие модального окна предпросмотра и редактирования
+    function openPreviewDocsModal() {
+        // Обновляем информацию о текущем томе
+        if (selectedCaseInfo && selectedCaseInfo.current_volume) {
+            var freePages = selectedCaseInfo.current_volume.free_pages;
+            var currentPages = selectedCaseInfo.current_volume.total_pages;
+            $('#previewCurrentVolume').text('Том ' + selectedCaseInfo.current_volume.volume_number);
+            $('#previewAvailablePages').text(freePages + ' стр. (текущий том: ' + currentPages + '/250 стр.)');
+        } else {
+            $('#previewCurrentVolume').text('Новый том будет создан');
+            $('#previewAvailablePages').text('250 стр.');
+        }
+        
+        // Заполняем таблицу редактирования
+        fillPreviewTable();
+        
+        // Сбрасываем результат расчета
+        previewCalculationResult = null;
+        updateCalculationDisplay();
+        
+        $('#previewDocsModal').modal('show');
+    }
+    
+    // Заполнение таблицы предпросмотра
+    function fillPreviewTable() {
+        var tbody = $('#previewDocsTableBody');
+        tbody.empty();
+        
+        selectedDocuments.forEach(function(docId, index) {
+            var docData = selectedDocumentsData[docId];
+            if (docData) {
+                var row = '<tr data-doc-id="' + docId + '" data-row-index="' + index + '">';
+                row += '<td class="text-center">';
+                row += '<span class="badge badge-primary order-badge">' + (index + 1) + '</span>';
+                row += '</td>';
+                row += '<td><span class="doc-title-display">' + (docData.title || '') + '</span></td>';
+                row += '<td class="text-center"><span class="doc-pages-display">' + (docData.pages_count || docData.pages || 1) + '</span></td>';
+                row += '<td><span class="doc-incoming-display">' + (docData.incoming_number || '-') + '</span></td>';
+                row += '<td><span class="doc-outgoing-display">' + (docData.outgoing_number || '-') + '</span></td>';
+                row += '<td><span class="doc-extra-display">' + (docData.extra_info || '') + '</span></td>';
+                row += '<td class="text-center">';
+                row += '<button class="btn btn-sm btn-outline-primary btn-action edit-doc-btn" title="Редактировать">';
+                row += '<i class="fas fa-edit"></i>';
+                row += '</button> ';
+                row += '<button class="btn btn-sm btn-outline-danger btn-action remove-doc-btn" title="Удалить">';
+                row += '<i class="fas fa-trash"></i>';
+                row += '</button>';
+                row += '</td>';
+                row += '</tr>';
+                tbody.append(row);
+            }
+        });
+        
+        // Инициализация перетаскивания строк
+        initTableSorting();
+        
+        // Добавляем обработчики для кнопок
+        addPreviewTableHandlers();
+    }
+    
+    // Инициализация перетаскивания строк в таблице предпросмотра
+    function initTableSorting() {
+        $("#previewDocsTable tbody").sortable({
+            handle: ".order-badge, td:not(:last-child)",
+            placeholder: "ui-state-highlight",
+            opacity: 0.7,
+            start: function(event, ui) {
+                ui.placeholder.height(ui.item.height());
+            },
+            update: function(event, ui) {
+                // Обновляем порядок после перетаскивания
+                updatePreviewTableOrder();
+            }
+        }).disableSelection();
+    }
+    
+    // Обновление порядка в таблице предпросмотра
+    function updatePreviewTableOrder() {
+        var newOrder = [];
+        $("#previewDocsTable tbody tr").each(function(index) {
+            var docId = parseInt($(this).data('doc-id'));
+            if (docId) {
+                newOrder.push(docId);
+                // Обновляем индекс строки
+                $(this).data('row-index', index);
+                // Обновляем номер порядка
+                $(this).find('.order-badge').text(index + 1);
+            }
+        });
+        
+        // Обновляем основной массив
+        selectedDocuments = newOrder;
+    }
+    
+    // Добавление обработчиков для таблицы предпросмотра
+    function addPreviewTableHandlers() {
+        // Обработчик кнопки редактирования
+        $('.edit-doc-btn').off('click').on('click', function() {
+            var row = $(this).closest('tr');
+            var docId = parseInt(row.data('doc-id'));
+            var rowIndex = row.data('row-index');
+            openEditDocModal(docId, rowIndex);
+        });
+        
+        // Обработчик кнопки удаления
+        $('.remove-doc-btn').off('click').on('click', function() {
+            var row = $(this).closest('tr');
+            var docId = parseInt(row.data('doc-id'));
+            
+            if (confirm('Удалить этот документ из списка?')) {
+                removeDocumentFromPreview(docId);
+            }
+        });
+    }
+    
+    // Открытие модального окна редактирования документа
+    function openEditDocModal(docId, rowIndex) {
+        var docData = selectedDocumentsData[docId];
+        if (!docData) return;
+        
+        currentEditingDocId = docId;
+        currentEditingRowIndex = rowIndex;
+        
+        $('#editDocTitle').val(docData.title || '');
+        $('#editDocPages').val(docData.pages_count || docData.pages || 1);
+        $('#editDocIncoming').val(docData.incoming_number || '');
+        $('#editDocOutgoing').val(docData.outgoing_number || '');
+        $('#editDocExtra').val(docData.extra_info || '');
+        $('#editDocId').val(docId);
+        $('#editDocRowIndex').val(rowIndex);
+        
+        $('#editDocModal').modal('show');
+    };
+
+ 
+
+    // Сохранение изменений документа
+    $('#saveDocChanges').on('click', function() {
+        var docId = currentEditingDocId;
+        var rowIndex = currentEditingRowIndex;
+        var docData = selectedDocumentsData[docId];
+        
+        if (!docData) return;
+        
+        // Получаем новые значения
+        var newTitle = $('#editDocTitle').val().trim();
+        var newPages = parseInt($('#editDocPages').val()) || 1;
+        var newExtra = $('#editDocExtra').val().trim();
+        
+        // Валидация
+        if (!newTitle) {
+            alert('Введите название документа');
+            return;
+        }
+        
+        if (newPages < 1 || newPages > 250) {
+            alert('Количество страниц должно быть от 1 до 250');
+            return;
+        }
+        
+        // Обновляем данные
+        docData.title = newTitle;
+        docData.pages_count = newPages;
+        docData.pages = newPages;
+        docData.extra_info = newExtra;
+        
+        // Обновляем отображение в таблице
+        var row = $('#previewDocsTable tbody tr[data-doc-id="' + docId + '"]');
+        row.find('.doc-title-display').text(newTitle);
+        row.find('.doc-pages-display').text(newPages);
+        row.find('.doc-extra-display').text(newExtra || '');
+        
+        // Закрываем модальное окно
+        $('#editDocModal').modal('hide');
+        
+        // Сбрасываем результат расчета (т.к. изменилось количество страниц)
+        previewCalculationResult = null;
+        updateCalculationDisplay();
+        
+        // Снимаем подсветку
+        row.removeClass('preview-accepted preview-rejected');
+    });
+    
+    // Удаление документа из предпросмотра
+    function removeDocumentFromPreview(docId) {
+        var index = selectedDocuments.indexOf(docId);
+        if (index > -1) {
+            selectedDocuments.splice(index, 1);
+            delete selectedDocumentsData[docId];
+            
+            // Удаляем строку из таблицы
+            $('tr[data-doc-id="' + docId + '"]').remove();
+            
+            // Обновляем порядок и индексы
+            updatePreviewTableOrder();
+            
+            // Сбрасываем результат расчета
+            previewCalculationResult = null;
+            updateCalculationDisplay();
+        }
+    }
+    
+    // Сортировка по названию
+    $('#sortByName').on('click', function() {
+        sortPreviewTable('title');
+    });
+    
+    // Сортировка по количеству страниц
+    $('#sortByPages').on('click', function() {
+        sortPreviewTable('pages');
+    });
+    
+    // Восстановление исходного порядка
+    $('#restoreOrder').on('click', function() {
+        if (originalSelectionOrder.length > 0) {
+            // Восстанавливаем порядок
+            selectedDocuments = [...originalSelectionOrder];
+            
+            // Перестраиваем таблицу
+            fillPreviewTable();
+            
+            alert('Исходный порядок выбора восстановлен');
+        } else {
+            alert('Исходный порядок не сохранен');
+        }
+    });
+    
+    // Сортировка таблицы предпросмотра
+    function sortPreviewTable(field) {
+        // Сортируем массив документов
+        selectedDocuments.sort(function(a, b) {
+            var docA = selectedDocumentsData[a];
+            var docB = selectedDocumentsData[b];
+            
+            if (field === 'title') {
+                return (docA.title || '').localeCompare(docB.title || '');
+            } else if (field === 'pages') {
+                return (docA.pages_count || 0) - (docB.pages_count || 0);
+            }
+            return 0;
+        });
+        
+        // Перестраиваем таблицу
+        fillPreviewTable();
+    }
+    
+    // Предварительный расчет размещения
+    $('#calculatePlacement').on('click', function() {
+        // Собираем текущие данные документов
+        var documentsData = [];
+        selectedDocuments.forEach(function(docId) {
+            var docData = selectedDocumentsData[docId];
+            if (docData) {
+                documentsData.push({
+                    id: docId,
+                    title: docData.title,
+                    pages_count: docData.pages_count || docData.pages || 1,
+                    pages: docData.pages_count || docData.pages || 1,
+                    incoming_number: docData.incoming_number,
+                    outgoing_number: docData.outgoing_number,
+                    extra_info: docData.extra_info
+                });
+            }
+        });
+        
+        if (documentsData.length === 0) {
+            alert('Нет документов для расчета');
+            return;
+        }
+        
+        // Отправляем запрос на предварительный расчет
+        $.ajax({
+            url: '/api/cases/' + selectedCaseId + '/preview-add',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ documents: documentsData }),
+            success: function(data) {
+                previewCalculationResult = data;
+                updateCalculationDisplay();
+                highlightDocumentsInPreview(data);
+            },
+            error: function(xhr) {
+                console.error('Error calculating placement:', xhr);
+                alert('Ошибка при расчете размещения: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Неизвестная ошибка'));
+            }
+        });
+    });
+    
+    // Обновление отображения результата расчета
+    function updateCalculationDisplay() {
+        var resultDiv = $('#previewCalculationResult');
+        
+        if (!previewCalculationResult) {
+            resultDiv.html('<p>Нажмите "Рассчитать размещение" для предварительного расчета</p>');
+            return;
+        }
+        
+        var html = '<div class="calculation-result ';
+        
+        if (previewCalculationResult.rejected_count === 0) {
+            html += 'calculation-success">';
+            html += '<h5 class="mb-2"><i class="fas fa-check-circle"></i> Все документы поместятся!</h5>';
+        } else if (previewCalculationResult.accepted_count > 0) {
+            html += 'calculation-warning">';
+            html += '<h5 class="mb-2"><i class="fas fa-exclamation-triangle"></i> Поместятся не все документы</h5>';
+        } else {
+            html += 'calculation-error">';
+            html += '<h5 class="mb-2"><i class="fas fa-times-circle"></i> Документы не поместятся</h5>';
+        }
+        
+        html += '<p><strong>Том:</strong> ' + previewCalculationResult.volume_number + '</p>';
+        html += '<p><strong>Текущих страниц в томе:</strong> ' + previewCalculationResult.current_pages + '</p>';
+        html += '<p><strong>Свободно страниц:</strong> ' + previewCalculationResult.free_pages + '</p>';
+        html += '<p><strong>После добавления:</strong> ' + previewCalculationResult.after_addition_pages + ' стр.</p>';
+        html += '<p><strong>Поместятся:</strong> ' + previewCalculationResult.accepted_count + ' документов</p>';
+        html += '<p><strong>Не поместятся:</strong> ' + previewCalculationResult.rejected_count + ' документов</p>';
+        
+        if (previewCalculationResult.will_be_full) {
+            html += '<p class="mb-0"><strong><i class="fas fa-info-circle"></i> Том будет полностью заполнен!</strong></p>';
+        }
+        
+        html += '</div>';
+        
+        resultDiv.html(html);
+    }
+    
+    // Подсветка документов в таблице на основе расчета
+    function highlightDocumentsInPreview(calculationResult) {
+        // Сначала снимаем все подсветки
+        $('#previewDocsTable tbody tr').removeClass('preview-accepted preview-rejected');
+        
+        // Подсвечиваем принятые документы
+        if (calculationResult.accepted_documents) {
+            calculationResult.accepted_documents.forEach(function(doc) {
+                $('tr[data-doc-id="' + doc.id + '"]').addClass('preview-accepted');
+            });
+        }
+        
+        // Подсвечиваем отклоненные документы
+        if (calculationResult.rejected_documents) {
+            calculationResult.rejected_documents.forEach(function(doc) {
+                $('tr[data-doc-id="' + doc.id + '"]').addClass('preview-rejected');
+            });
+        }
+    }
+    
+    // Сохранение изменений и добавление документов
+    $('#saveAndAddDocuments').on('click', function() {
+        if (selectedDocuments.length === 0) {
+            alert('Нет документов для добавления');
+            return;
+        }
+        
+        // Собираем данные документов
+        var documentsData = [];
+        selectedDocuments.forEach(function(docId) {
+            var docData = selectedDocumentsData[docId];
+            if (docData) {
+                documentsData.push({
+                    id: docId,
+                    title: docData.title,
+                    pages_count: docData.pages_count || docData.pages || 1,
+                    pages: docData.pages_count || docData.pages || 1,
+                    incoming_number: docData.incoming_number,
+                    outgoing_number: docData.outgoing_number,
+                    extra_info: docData.extra_info
+                });
+            }
+        });
+        
+        // Сначала обновляем документы в базе данных
+        $.ajax({
+            url: '/api/documents/batch-update',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ documents: documentsData }),
+            success: function(updateResponse) {
+                console.log('Documents updated:', updateResponse);
+                
+                // Теперь добавляем документы в дело
+                addDocumentsToCase(documentsData);
+            },
+            error: function(xhr) {
+                console.error('Error updating documents:', xhr);
+                alert('Ошибка при обновлении документов: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Неизвестная ошибка'));
+            }
+        });
+    });
+    
+    // Добавление документов в дело
+    function addDocumentsToCase(documentsData) {
+        var confirmMessage = 'Вы уверены, что хотите добавить ' + documentsData.length + ' документов в дело?\n\n';
+        confirmMessage += 'Документы будут добавлены в следующем порядке:\n';
+        
+        documentsData.forEach(function(doc, index) {
+            confirmMessage += (index + 1) + '. ' + doc.title + ' (' + doc.pages_count + ' стр.)\n';
+        });
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/cases/' + selectedCaseId + '/documents',
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ documents: documentsData }),
+            success: function(data) {
+                console.log('Documents added successfully:', data);
+                
+                // Показываем отклоненные документы, если есть
+                if (data.rejected_documents && data.rejected_documents.length > 0) {
+                    showRejectedDocuments(data.rejected_documents);
+                }
+                
+                // Показываем успешное сообщение
+                var message = 'Успешно добавлено документов: ' + data.accepted_count + '\n\n';
+                
+                if (data.accepted_documents && data.accepted_documents.length > 0) {
+                    message += 'Документы добавлены в порядке:\n';
+                    data.accepted_documents.forEach(function(doc, index) {
+                        message += doc.selection_order + '. ' + (doc.title || 'Документ ID ' + doc.id) + ' (страницы: ' + doc.start_page + '-' + doc.end_page + ')\n';
+                    });
+                }
+                
+                if (data.volume_full_message) {
+                    message += '\n' + data.volume_full_message;
+                }
+                
+                alert(message);
+                
+                // Закрываем модальные окна и обновляем данные
+                $('#previewDocsModal').modal('hide');
+                loadCases();
+                
+                // Сбрасываем выбранные документы
+                selectedDocuments = [];
+                selectedDocumentsData = {};
+                originalSelectionOrder = [];
+            },
+            error: function(xhr) {
+                console.error('Error adding documents:', xhr);
+                var errorMsg = 'Ошибка: ';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg += xhr.responseJSON.error;
+                    
+                    if (xhr.responseJSON.used_documents) {
+                        showUsedDocuments(xhr.responseJSON.used_documents);
+                    }
+                } else {
+                    errorMsg += xhr.responseText || 'Неизвестная ошибка';
+                }
+                alert(errorMsg);
+            }
+        });
+    }
+    
+    // Назад к выбору документов
+    $('#backToSelection').on('click', function() {
+        $('#previewDocsModal').modal('hide');
+        $('#selectDocsModal').modal('show');
+    });
+    
+    // Функция отображения отклоненных документов
+    function showRejectedDocuments(rejectedDocs) {
+        var tbody = $('#rejectedDocsTableBody');
+        tbody.empty();
+        
+        rejectedDocs.forEach(function(doc) {
+            var row = '<tr>';
+            row += '<td class="text-center">' + (doc.order || '-') + '</td>';
+            row += '<td>' + doc.id + '</td>';
+            row += '<td>' + (doc.title || selectedDocumentsData[doc.id]?.title || '') + '</td>';
+            row += '<td>' + (doc.reason || 'Неизвестная причина') + '</td>';
+            row += '</tr>';
+            tbody.append(row);
+        });
+        
+        $('#rejectedDocsModal').modal('show');
+    }
+    
+    // Функция отображения уже используемых документов
+    function showUsedDocuments(usedDocs) {
+        var tbody = $('#usedDocsTableBody');
+        tbody.empty();
+        
+        usedDocs.forEach(function(doc) {
+            var row = '<tr>';
+            row += '<td>' + (doc.document_id || doc.id) + '</td>';
+            row += '<td>' + (doc.title || '') + '</td>';
+            row += '<td>' + doc.case_name + ' (ID: ' + doc.case_id + ')</td>';
+            row += '<td>Том ' + doc.volume_number + '</td>';
+            row += '<td>' + doc.pages_in_volume + '</td>';
+            row += '</tr>';
+            tbody.append(row);
+        });
+        
+        $('#usedDocsModal').modal('show');
+    }
+    
+    
+    $('#createNewCaseBtn').on('click', function() {
+        var isAdmin = '{{ current_user.username }}' === 'admin';
+        if (isAdmin) {
+            $('#newDeptSelect').show();
+            loadDepartments();
+        }
+        $('#newCaseForm').show();
+    });
+    
+    function loadDepartments() {
+        $.ajax({
+            url: '/api/departments',
+            method: 'GET',
+            success: function(data) {
+                var select = $('#newCaseDepartment');
+                select.empty();
+                select.append('<option value="">Выберите департамент</option>');
+                data.forEach(function(dept) {
+                    select.append('<option value="' + dept.id + '">' + dept.name + '</option>');
+                });
+            },
+            error: function(xhr) {
+                console.error('Error loading departments:', xhr);
+                alert('Ошибка загрузки департаментов');
+            }
+        });
+    }
+    
+    $('#cancelNewCase').on('click', function() {
+        $('#newCaseForm').hide();
+        $('#newDeptSelect').hide();
+        $('#newCaseName').val('');
+        $('#newCaseDescription').val('');
+    });
+    
+
+    $('#submitNewCase').on('click', function() {
+        var name = $('#newCaseName').val().trim();
+        var desc = $('#newCaseDescription').val().trim();
+        var deptId = $('#newCaseDepartment').val();
+        
+        console.log('Creating case with:', { name, desc, deptId });
+        
+        if (!name) {
+            alert('Введите название дела');
+            return;
+        }
+        
+        var payload = { 
+            name: name, 
+            description: desc, 
+            document_ids: []
+        };
+        
+        if (deptId) {
+            payload.department_id = parseInt(deptId);
+        }
+        
+        console.log('Sending payload:', payload);
+        
+        $.ajax({
+            url: '/api/cases',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            success: function(data) {
+                console.log('Case created successfully:', data);
+                alert('Дело успешно создано! ID: ' + data.case_id + 
+                      '\nСоздано томов: ' + data.volumes_count +
+                      '\nЧастично заполненный том: ' + (data.has_partial_volume ? 'Да' : 'Нет'));
+                
+                $('#newCaseForm').hide();
+                $('#newCaseName').val('');
+                $('#newCaseDescription').val('');
+                $('#newCaseDepartment').val('');
+                
+                // Обновляем список дел
+                loadCases();
+            },
+            error: function(xhr) {
+                console.error('Error creating case:', xhr);
+                var errorMsg = 'Ошибка создания дела: ';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg += xhr.responseJSON.error;
+                    if (xhr.responseJSON.used_documents) {
+                        showUsedDocuments(xhr.responseJSON.used_documents);
+                    }
+                } else {
+                    errorMsg += xhr.responseText || 'Неизвестная ошибка';
+                }
+                alert(errorMsg);
+            }
+        });
+});  
+})    
+</script>
+{% endblock %}
