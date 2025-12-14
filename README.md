@@ -40,6 +40,27 @@ python seed_documents.py
 python run.py
 ```
 
+# из корня
+cd frontend
+npm run build
+cd ..
+bash scripts/mv-dist.sh
+
+# запуск Flask
+export FLASK_APP=backend/run.py
+flask run
+
+
+
+
+
+
+
+
+
+
+
+
 Документация по эндпоинтам и примеры находятся в проекте (папка `app/api`).
 
 1 добавить год к названию дела например дело №5-25
